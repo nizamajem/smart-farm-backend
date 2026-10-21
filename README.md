@@ -33,3 +33,21 @@ Device key demo: `demo-greenhouse-key`.
 - ESP32 (header `x-device-key`): `POST /api/iot/readings`, `GET /api/iot/commands`, `POST /api/iot/commands/:id/ack`
 
 Relay ON dibatasi maks. 3000 ms; perintah yang tidak diambil dalam 30 detik ditandai `expired`.
+
+## Migrasi database
+
+Skema dikelola TypeORM migration (bukan `synchronize`). Migration yang belum jalan dieksekusi otomatis saat app start.
+
+```bash
+# setelah mengubah *.entity.ts, buat migration baru lalu commit file-nya
+npm run migration:generate -- src/migrations/NamaPerubahan
+npm run migration:run        # jalankan (dev)
+npm run migration:revert     # batalkan yang terakhir
+npm run db:backup            # backup SQLite
+```
+
+## Produksi
+
+- `Dockerfile` → image dengan PM2 (`pm2-runtime ecosystem.config.js`), health check `GET /api/health`
+- Deploy lengkap satu perintah: lihat repo [smart-farm-deploy](https://github.com/nizamajem/smart-farm-deploy)
+- Tanpa Docker: `npm ci && npm run build && npm run migration:run:prod && pm2 startOrRestart ecosystem.config.js`

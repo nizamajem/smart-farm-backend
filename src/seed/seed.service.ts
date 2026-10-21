@@ -10,7 +10,11 @@ export const DEMO_ADMIN = { email: 'admin@smartfarm.local', password: 'admin123'
 export const DEMO_USER = { email: 'user@smartfarm.local', password: 'user123' };
 export const DEMO_DEVICE_KEY = 'demo-greenhouse-key';
 
-/** Mengisi akun admin & user + perangkat demo (milik user) dengan riwayat 24 jam saat database masih kosong. */
+/**
+ * Hanya berjalan saat belum ada akun sama sekali:
+ * - ADMIN_EMAIL + ADMIN_PASSWORD diisi → buat satu admin awal (produksi).
+ * - selain itu, SEED_DEMO=true → akun admin & user + perangkat demo dengan riwayat 24 jam.
+ */
 @Injectable()
 export class SeedService implements OnApplicationBootstrap {
   private readonly log = new Logger('Seed');
@@ -22,7 +26,23 @@ export class SeedService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    if (process.env.SEED_DEMO === 'false' || (await this.users.count()) > 0) return;
+    if ((await this.users.count()) > 0) return;
+
+    const { ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
+    if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+      await this.users.create({
+        name: process.env.ADMIN_NAME || 'Administrator',
+        email: ADMIN_EMAIL,
+        passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 10),
+        role: 'admin',
+      });
+      this.log.log(`Admin awal dibuat: ${ADMIN_EMAIL}`);
+      return;
+    }
+    if (process.env.SEED_DEMO !== 'true') {
+      this.log.warn('Belum ada akun. Isi ADMIN_EMAIL & ADMIN_PASSWORD (atau SEED_DEMO=true) lalu restart.');
+      return;
+    }
 
     const admin = await this.users.create({
       name: 'Admin Kebun',

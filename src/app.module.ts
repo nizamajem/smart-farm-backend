@@ -3,25 +3,19 @@ import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
-import { Device } from './devices/device.entity';
+import { databaseOptions } from './database.config';
 import { DevicesModule } from './devices/devices.module';
-import { RelayCommand } from './devices/relay-command.entity';
-import { SensorReading } from './devices/sensor-reading.entity';
+import { HealthController } from './health.controller';
 import { IotModule } from './iot/iot.module';
 import { SeedService } from './seed/seed.service';
-import { User } from './users/user.entity';
 import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
-      useFactory: () => ({
-        type: 'better-sqlite3',
-        database: process.env.DB_PATH ?? 'smartfarm.sqlite',
-        entities: [User, Device, SensorReading, RelayCommand],
-        synchronize: true,
-      }),
+      // Migration yang belum jalan dieksekusi otomatis saat start (deploy juga menjalankannya eksplisit).
+      useFactory: () => ({ ...databaseOptions(), migrationsRun: true }),
     }),
     JwtModule.registerAsync({
       global: true,
@@ -35,6 +29,7 @@ import { UsersModule } from './users/users.module';
     DevicesModule,
     IotModule,
   ],
+  controllers: [HealthController],
   providers: [SeedService],
 })
 export class AppModule {}
