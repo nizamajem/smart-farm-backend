@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { databaseOptions } from './database.config';
 import { DevicesModule } from './devices/devices.module';
 import { HealthController } from './health.controller';
+import { HomeAssistantModule } from './home-assistant/home-assistant.module';
 import { IotModule } from './iot/iot.module';
 import { SeedService } from './seed/seed.service';
 import { UsersModule } from './users/users.module';
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     DevicesModule,
     IotModule,
+    HomeAssistantModule,
   ],
   controllers: [HealthController],
   providers: [SeedService],

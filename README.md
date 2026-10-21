@@ -51,3 +51,27 @@ npm run db:backup            # backup SQLite
 - `Dockerfile` → image dengan PM2 (`pm2-runtime ecosystem.config.js`), health check `GET /api/health`
 - Deploy lengkap satu perintah: lihat repo [smart-farm-deploy](https://github.com/nizamajem/smart-farm-deploy)
 - Tanpa Docker: `npm ci && npm run build && npm run migration:run:prod && pm2 startOrRestart ecosystem.config.js`
+
+## Home Assistant
+
+Integrasi lewat REST API Home Assistant dengan long-lived access token (opsional).
+
+1. Di HA: **Profil → Security → Long-lived access tokens → Create token**
+2. Isi `.env`: `HA_BASE_URL=http://<ip-ha>:8123` dan `HA_TOKEN=<token>`, lalu restart backend
+3. Login sebagai admin → buka perangkat → kartu **Home Assistant** → pilih entity sensor untuk suhu,
+   kelembapan, tanah, cahaya → **Simpan pemetaan**
+
+Setiap `HA_SYNC_INTERVAL_SEC` detik (default 300) state entity tersebut disimpan sebagai data sensor perangkat,
+jadi dashboard, grafik, dan aplikasi mobile langsung menampilkannya. Nilai `unavailable`/`unknown` dilewati.
+
+Endpoint (khusus admin):
+
+| Method | Path | Keterangan |
+|---|---|---|
+| GET | `/api/home-assistant/health` | Status koneksi ke HA |
+| GET | `/api/home-assistant/states?domain=sensor` | Daftar entity (opsional disaring domain) |
+| GET | `/api/home-assistant/states/:entityId` | State satu entity |
+| GET | `/api/home-assistant/sensors?ids=a,b` | Nilai beberapa sensor |
+| GET | `/api/home-assistant/history/:entityId?start=&end=` | Riwayat dari HA |
+| PUT | `/api/home-assistant/devices/:id` | Pemetaan `{temperature?, humidity?, soilMoisture?, lightLux?}` (string kosong = hapus) |
+| POST | `/api/home-assistant/sync` | Sinkronisasi sekarang |
