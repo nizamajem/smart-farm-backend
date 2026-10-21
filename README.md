@@ -75,3 +75,20 @@ Endpoint (khusus admin):
 | GET | `/api/home-assistant/history/:entityId?start=&end=` | Riwayat dari HA |
 | PUT | `/api/home-assistant/devices/:id` | Pemetaan `{temperature?, humidity?, soilMoisture?, lightLux?}` (string kosong = hapus) |
 | POST | `/api/home-assistant/sync` | Sinkronisasi sekarang |
+
+## Rilis aplikasi Android (APK)
+
+Admin mengunggah APK dari menu **Aplikasi** di web; versi terbaru otomatis muncul sebagai tombol
+**Unduh aplikasi Android** di halaman login.
+
+| Method | Path | Auth | Keterangan |
+|---|---|---|---|
+| GET | `/api/app-releases/latest` | – | `{ release: {version, notes, size, sha256, createdAt} \| null }` |
+| GET | `/api/app-releases/latest/download` | – | Unduh APK terbaru (`SmartFarm-<versi>.apk`) |
+| GET | `/api/app-releases/:id/download` | – | Unduh versi tertentu |
+| GET | `/api/app-releases` | admin | Daftar versi + jumlah unduhan |
+| POST | `/api/app-releases` | admin | `multipart/form-data`: `file` (.apk), `version`, `notes?` |
+| DELETE | `/api/app-releases/:id` | admin | Hapus versi beserta berkasnya |
+
+Berkas disimpan di `RELEASES_DIR` (default: folder `releases/` di samping database, jadi ikut volume data Docker).
+Batas ukuran `MAX_APK_MB` (default 100 — sama dengan batas unggah Cloudflare paket gratis).
