@@ -1,9 +1,9 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
-import { LoginDto, RegisterDto } from './dto';
+import { LoginDto } from './dto';
 import { JwtUser } from './jwt-auth.guard';
 
 @Injectable()
@@ -12,18 +12,6 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly jwt: JwtService,
   ) {}
-
-  async register(dto: RegisterDto) {
-    if (await this.users.findByEmailWithPassword(dto.email)) {
-      throw new ConflictException('Email sudah terdaftar');
-    }
-    const user = await this.users.create({
-      name: dto.name,
-      email: dto.email,
-      passwordHash: await bcrypt.hash(dto.password, 10),
-    });
-    return this.issue(user);
-  }
 
   async login(dto: LoginDto) {
     const user = await this.users.findByEmailWithPassword(dto.email);

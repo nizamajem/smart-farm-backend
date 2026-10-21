@@ -1,17 +1,13 @@
 import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
-import { LoginDto, RegisterDto } from './dto';
+import { LoginDto } from './dto';
 import { JwtAuthGuard, JwtUser } from './jwt-auth.guard';
 
+/** Tidak ada pendaftaran publik: akun dibuat admin lewat /users. */
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
-
-  @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
-  }
 
   @Post('login')
   @HttpCode(200)

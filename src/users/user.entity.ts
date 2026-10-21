@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-export type Role = 'admin' | 'farmer';
+export type Role = 'admin' | 'user';
 
 @Entity('users')
 export class User {
@@ -16,7 +16,7 @@ export class User {
   @Column({ select: false })
   passwordHash: string;
 
-  @Column({ type: 'varchar', default: 'farmer' })
+  @Column({ type: 'varchar', default: 'user' })
   role: Role;
 
   @CreateDateColumn()

@@ -6,11 +6,11 @@ import { DEFAULT_RELAY_LABELS, Device } from '../devices/device.entity';
 import { SensorReading } from '../devices/sensor-reading.entity';
 import { UsersService } from '../users/users.service';
 
-export const DEMO_EMAIL = 'admin@smartfarm.local';
-export const DEMO_PASSWORD = 'admin123';
+export const DEMO_ADMIN = { email: 'admin@smartfarm.local', password: 'admin123' };
+export const DEMO_USER = { email: 'user@smartfarm.local', password: 'user123' };
 export const DEMO_DEVICE_KEY = 'demo-greenhouse-key';
 
-/** Mengisi akun admin + perangkat demo dengan riwayat 24 jam saat database masih kosong. */
+/** Mengisi akun admin & user + perangkat demo (milik user) dengan riwayat 24 jam saat database masih kosong. */
 @Injectable()
 export class SeedService implements OnApplicationBootstrap {
   private readonly log = new Logger('Seed');
@@ -26,9 +26,15 @@ export class SeedService implements OnApplicationBootstrap {
 
     const admin = await this.users.create({
       name: 'Admin Kebun',
-      email: DEMO_EMAIL,
-      passwordHash: await bcrypt.hash(DEMO_PASSWORD, 10),
+      email: DEMO_ADMIN.email,
+      passwordHash: await bcrypt.hash(DEMO_ADMIN.password, 10),
       role: 'admin',
+    });
+    const user = await this.users.create({
+      name: 'Petani Demo',
+      email: DEMO_USER.email,
+      passwordHash: await bcrypt.hash(DEMO_USER.password, 10),
+      role: 'user',
     });
     const device = await this.devices.save(
       this.devices.create({
@@ -36,7 +42,7 @@ export class SeedService implements OnApplicationBootstrap {
         location: 'Blok A',
         apiKey: DEMO_DEVICE_KEY,
         relayLabels: DEFAULT_RELAY_LABELS,
-        ownerId: admin.id,
+        ownerId: user.id,
       }),
     );
 
@@ -56,7 +62,8 @@ export class SeedService implements OnApplicationBootstrap {
     });
     await this.readings.save(rows);
 
-    this.log.log(`Akun demo: ${DEMO_EMAIL} / ${DEMO_PASSWORD}  •  device key: ${DEMO_DEVICE_KEY}`);
+    this.log.log(`Admin: ${admin.email} / ${DEMO_ADMIN.password}`);
+    this.log.log(`User: ${user.email} / ${DEMO_USER.password}  •  device key: ${DEMO_DEVICE_KEY}`);
   }
 }
 
