@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -15,12 +15,16 @@ import {
 
 export const MAX_ON_MS = 3000;
 
+export const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
 export class CreateDeviceDto {
+  @Transform(trim)
   @IsString()
   @MinLength(2)
   name: string;
 
   @IsOptional()
+  @Transform(trim)
   @IsString()
   location?: string;
 
