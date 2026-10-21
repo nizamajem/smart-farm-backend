@@ -7,8 +7,13 @@ export class AppRelease {
   @PrimaryGeneratedColumn()
   id: number;
 
+  /** versionName dari AndroidManifest APK, mis. "1.0.1" */
   @Column()
   version: string;
+
+  /** versionCode dari AndroidManifest APK — dipakai aplikasi untuk menentukan ada pembaruan */
+  @Column({ type: 'integer', nullable: true })
+  versionCode: number | null;
 
   @Column({ default: '' })
   notes: string;

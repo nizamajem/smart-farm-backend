@@ -24,6 +24,7 @@ import { AppReleasesService, MAX_APK_BYTES, releasesDir, UploadReleaseBody } fro
 const publicInfo = (r: AppRelease) => ({
   id: r.id,
   version: r.version,
+  versionCode: r.versionCode,
   notes: r.notes,
   size: r.size,
   sha256: r.sha256,

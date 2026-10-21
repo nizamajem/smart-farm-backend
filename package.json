@@ -16,6 +16,7 @@
     "db:backup": "node scripts/backup-db.js"
   },
   "dependencies": {
+    "@devicefarmer/adbkit-apkreader": "^3.2.4",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",

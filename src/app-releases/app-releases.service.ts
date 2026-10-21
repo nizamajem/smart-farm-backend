@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import ApkReader from '@devicefarmer/adbkit-apkreader';
 import { createHash } from 'crypto';
 import { createReadStream, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { open, rename, unlink } from 'fs/promises';
@@ -8,11 +9,11 @@ import { Repository } from 'typeorm';
 import { AppRelease } from './app-release.entity';
 
 export interface UploadReleaseBody {
-  version?: string;
   notes?: string;
 }
 
-const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}$/;
+/** Hanya APK aplikasi ini yang boleh diunggah (applicationId di android/app/build.gradle.kts). */
+const APP_PACKAGE = process.env.APP_PACKAGE ?? 'com.smartfarm.smart_farm';
 
 /** Folder penyimpanan APK: default di samping database agar ikut volume data. */
 export const releasesDir = () =>
@@ -30,21 +31,22 @@ export class AppReleasesService {
     }
   }
 
+  // Urut versionCode: yang tertinggi = versi terbaru (NULL — data lama — selalu paling bawah)
+  private readonly newestFirst = { versionCode: 'DESC', createdAt: 'DESC', id: 'DESC' } as const;
+
   list() {
-    return this.releases.find({ order: { createdAt: 'DESC', id: 'DESC' } });
+    return this.releases.find({ order: this.newestFirst });
   }
 
   latest() {
-    return this.releases.findOne({ where: {}, order: { createdAt: 'DESC', id: 'DESC' } });
+    return this.releases.findOne({ where: {}, order: this.newestFirst });
   }
 
   /** Validasi dilakukan di sini (bukan ValidationPipe) agar berkas sementara selalu dibersihkan saat gagal. */
   async create(file: Express.Multer.File | undefined, body: UploadReleaseBody, userId: number) {
     if (!file) throw new BadRequestException('Pilih berkas APK untuk diunggah');
     try {
-      const version = (body.version ?? '').trim();
       const notes = (body.notes ?? '').trim();
-      if (!VERSION_RE.test(version)) throw new BadRequestException('Versi tidak valid, contoh: 1.0.0');
       if (notes.length > 1000) throw new BadRequestException('Catatan rilis maksimal 1000 karakter');
       if (!file.originalname.toLowerCase().endsWith('.apk')) {
         throw new BadRequestException('Berkas harus berekstensi .apk');
@@ -57,6 +59,25 @@ export class AppReleasesService {
         throw new BadRequestException('Berkas bukan APK yang valid');
       }
 
+      // Versi diambil dari APK itu sendiri, jadi tidak mungkin salah ketik
+      const manifest = await ApkReader.open(file.path)
+        .then((r) => r.readManifest())
+        .catch(() => {
+          throw new BadRequestException('APK tidak bisa dibaca. Pastikan berkas hasil "flutter build apk".');
+        });
+      if (manifest.package !== APP_PACKAGE) {
+        throw new BadRequestException(`APK ini bukan aplikasi Smart Farm (paket ${manifest.package})`);
+      }
+      const version = String(manifest.versionName ?? '').replace(/[^0-9A-Za-z.+_-]/g, '') || String(manifest.versionCode);
+      const versionCode = Number(manifest.versionCode);
+      const newest = await this.latest();
+      if (newest?.versionCode != null && versionCode <= newest.versionCode) {
+        throw new BadRequestException(
+          `Versi APK (${version}, build ${versionCode}) harus lebih baru dari versi terbaru ` +
+            `(${newest.version}, build ${newest.versionCode}). Naikkan "version" di pubspec.yaml lalu build ulang.`,
+        );
+      }
+
       const sha256 = await this.hash(file.path);
       const fileName = `smart-farm-${version}-${Date.now()}.apk`;
       await rename(file.path, join(releasesDir(), fileName));
@@ -64,6 +85,7 @@ export class AppReleasesService {
       return this.releases.save(
         this.releases.create({
           version,
+          versionCode,
           notes,
           fileName,
           size: file.size,
