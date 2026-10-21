@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppReleasesModule } from './app-releases/app-releases.module';
 import { AuthModule } from './auth/auth.module';
 import { databaseOptions } from './database.config';
 import { DevicesModule } from './devices/devices.module';
@@ -30,6 +31,7 @@ import { UsersModule } from './users/users.module';
     DevicesModule,
     IotModule,
     HomeAssistantModule,
+    AppReleasesModule,
   ],
   controllers: [HealthController],
   providers: [SeedService],
