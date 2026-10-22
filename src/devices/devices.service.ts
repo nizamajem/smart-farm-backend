@@ -5,10 +5,11 @@ import { LessThan, Repository } from 'typeorm';
 import { ActivityService } from '../activity/activity.service';
 import { ClientInfo } from '../activity/client-info.decorator';
 import { JwtUser } from '../auth/jwt-auth.guard';
+import { DeviceEvents } from './device-events';
 import { DEFAULT_RELAY_LABELS, Device } from './device.entity';
 import { CreateCommandDto, CreateDeviceDto, CreateReadingDto, MAX_ON_MS } from './dto';
 import { RelayCommand } from './relay-command.entity';
-import { SensorReading } from './sensor-reading.entity';
+import { ReadingSource, SensorReading } from './sensor-reading.entity';
 
 /** Perangkat dianggap online bila mengirim data dalam 2 menit terakhir. */
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -22,6 +23,7 @@ export class DevicesService {
     @InjectRepository(SensorReading) private readonly readings: Repository<SensorReading>,
     @InjectRepository(RelayCommand) private readonly commands: Repository<RelayCommand>,
     private readonly activity: ActivityService,
+    private readonly events: DeviceEvents,
   ) {}
 
   // ---------- akses pengguna ----------
@@ -92,6 +94,8 @@ export class DevicesService {
       `${dto.action === 'ON' ? 'Menyalakan' : 'Mematikan'} ${label} di "${device.name}"`,
       { deviceId: id, client, meta: { relay: dto.relay, commandId: command.id, durationMs: command.durationMs } },
     );
+    // Jalur MQTT (bila aktif & perangkat tersambung) langsung meneruskan perintah ini
+    this.events.commandCreated(command);
     return command;
   }
 
@@ -101,9 +105,18 @@ export class DevicesService {
     return this.devices.findOne({ where: { apiKey } });
   }
 
-  async recordReading(device: Device, dto: CreateReadingDto) {
+  findById(id: number) {
+    return this.devices.findOne({ where: { id } });
+  }
+
+  async recordReading(device: Device, dto: CreateReadingDto, source: ReadingSource = 'http') {
     await this.touch(device);
-    return this.readings.save(this.readings.create({ deviceId: device.id, ...dto }));
+    return this.readings.save(this.readings.create({ deviceId: device.id, ...dto, source }));
+  }
+
+  /** Perintah sudah dikirim lewat MQTT (hanya bila masih menunggu). */
+  async markSent(commandId: number) {
+    await this.commands.update({ id: commandId, status: 'pending' }, { status: 'sent' });
   }
 
   /** Ambil perintah yang menunggu, tandai sebagai terkirim. */
@@ -136,7 +149,8 @@ export class DevicesService {
 
   // ---------- helper ----------
 
-  private async getOwned(user: JwtUser, id: number) {
+  /** Perangkat milik pengguna (atau semua untuk admin), 404 bila tidak berhak. */
+  async getOwned(user: JwtUser, id: number) {
     const device = await this.devices.findOne({ where: { id } });
     if (!device || (user.role !== 'admin' && device.ownerId !== user.sub)) {
       throw new NotFoundException('Perangkat tidak ditemukan');
@@ -144,7 +158,7 @@ export class DevicesService {
     return device;
   }
 
-  private async touch(device: Device) {
+  async touch(device: Device) {
     device.lastSeenAt = new Date();
     await this.devices.update(device.id, { lastSeenAt: device.lastSeenAt });
   }

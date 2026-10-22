@@ -1,6 +1,8 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Device } from './device.entity';
 
+export type ReadingSource = 'http' | 'mqtt' | 'ha';
+
 @Entity('sensor_readings')
 @Index(['deviceId', 'createdAt'])
 export class SensorReading {
@@ -29,6 +31,10 @@ export class SensorReading {
   /** lux */
   @Column('real', { nullable: true })
   lightLux: number | null;
+
+  /** Jalur masuk data: http (ESP32 REST), mqtt, atau ha (Home Assistant) */
+  @Column({ type: 'varchar', default: 'http' })
+  source: ReadingSource;
 
   @CreateDateColumn()
   createdAt: Date;

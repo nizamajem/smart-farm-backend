@@ -9,8 +9,11 @@ import { databaseOptions } from './database.config';
 import { DevicesModule } from './devices/devices.module';
 import { HealthController } from './health.controller';
 import { HomeAssistantModule } from './home-assistant/home-assistant.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { IotModule } from './iot/iot.module';
+import { MqttModule } from './mqtt/mqtt.module';
 import { SeedService } from './seed/seed.service';
+import { SettingsModule } from './settings/settings.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -27,6 +30,7 @@ import { UsersModule } from './users/users.module';
         signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN ?? '7d') as any },
       }),
     }),
+    SettingsModule,
     ActivityModule,
     UsersModule,
     AuthModule,
@@ -34,6 +38,8 @@ import { UsersModule } from './users/users.module';
     IotModule,
     HomeAssistantModule,
     AppReleasesModule,
+    MqttModule,
+    IntegrationsModule,
   ],
   controllers: [HealthController],
   providers: [SeedService],

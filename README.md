@@ -92,3 +92,80 @@ Admin mengunggah APK dari menu **Aplikasi** di web; versi terbaru otomatis muncu
 
 Berkas disimpan di `RELEASES_DIR` (default: folder `releases/` di samping database, jadi ikut volume data Docker).
 Batas ukuran `MAX_APK_MB` (default 100 — sama dengan batas unggah Cloudflare paket gratis).
+
+## MQTT (jalur data langsung dari perangkat)
+
+Broker MQTT berjalan **di dalam backend** (Aedes). Bisa dinyalakan/dimatikan dari web admin → **Integrasi**,
+dan boleh aktif bersamaan dengan Home Assistant. Setiap data sensor ditandai sumbernya (`source`: `mqtt`, `ha`, `http`).
+
+### Koneksi
+
+| Jalur | URL | Keterangan |
+|---|---|---|
+| TCP (LAN) | `mqtt://<ip-server>:1883` | Paling ringan untuk ESP32 di jaringan yang sama |
+| WebSocket (internet) | `wss://<domain>/api/mqtt` | Lewat Cloudflare/Caddy, subprotocol `mqtt` |
+
+**Kredensial per perangkat** (lihat web → perangkat → tab Pengaturan):
+
+- Username: `device-<id>` (mis. `device-1`)
+- Password: device key perangkat
+- Client ID: bebas & unik, disarankan `smartfarm-<id>`
+
+**Akun pemantau tim HW** (`MQTT_ADMIN_USERNAME` / `MQTT_ADMIN_PASSWORD`, tampil di halaman Integrasi):
+boleh subscribe/publish semua topik — cocok untuk MQTT Explorer saat debugging.
+
+### Topik
+
+| Topik | Arah | Payload |
+|---|---|---|
+| `smartfarm/<id>/telemetry` | perangkat → server | `{"temperature":27.5,"humidity":70,"soilMoisture":55,"lightLux":12000}` (field boleh sebagian) |
+| `smartfarm/<id>/status` | perangkat → server | `online` / `offline` (pakai sebagai Last Will) |
+| `smartfarm/<id>/cmd` | server → perangkat | `{"id":42,"relay":1,"action":"ON","durationMs":3000}` |
+| `smartfarm/<id>/cmd/ack` | perangkat → server | `{"id":42}` setelah perintah dijalankan |
+
+Aturan: perangkat hanya boleh publish ke 3 topik miliknya & subscribe `smartfarm/<id>/cmd`.
+Publish ke topik lain → koneksi diputus. Perintah dikirim QoS 1; perintah yang tertunda saat perangkat
+offline dikirim begitu perangkat tersambung (maks. 30 detik, lalu kedaluwarsa). Relay `ON` selalu maks. 3000 ms
+— firmware tetap wajib auto-OFF sendiri.
+
+### Contoh ESP32 (Arduino + PubSubClient)
+
+```cpp
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+const char* DEVICE_ID = "1";
+const char* DEVICE_KEY = "<device key>";
+WiFiClient net;
+PubSubClient mqtt(net);
+
+void onCommand(char* topic, byte* payload, unsigned int len) {
+  // parse {"id":..,"relay":..,"action":"ON|OFF","durationMs":..}, jalankan relay (auto-OFF lokal!),
+  // lalu konfirmasi:
+  // mqtt.publish("smartfarm/1/cmd/ack", "{\"id\":42}");
+}
+
+void connectMqtt() {
+  mqtt.setServer("192.168.2.212", 1883);
+  mqtt.setCallback(onCommand);
+  while (!mqtt.connected()) {
+    if (mqtt.connect("smartfarm-1", "device-1", DEVICE_KEY,
+                     "smartfarm/1/status", 1, false, "offline")) {   // Last Will
+      mqtt.publish("smartfarm/1/status", "online");
+      mqtt.subscribe("smartfarm/1/cmd", 1);
+    } else delay(2000);
+  }
+}
+
+void loop() {
+  if (!mqtt.connected()) connectMqtt();
+  mqtt.loop();
+  // tiap 10 detik:
+  // mqtt.publish("smartfarm/1/telemetry", "{\"temperature\":27.5,\"humidity\":70}");
+}
+```
+
+Simulator siap pakai (contoh alur lengkap): `npm run simulate:mqtt -- <id> <deviceKey> mqtt://<ip-server>:1883`
+
+Endpoint terkait: `GET /api/devices/:id/mqtt` (kredensial, pemilik/admin), `GET /api/integrations`,
+`PUT /api/integrations/mqtt|home-assistant` `{enabled}` (admin).

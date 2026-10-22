@@ -13,7 +13,8 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/data-source.ts",
     "migration:run:prod": "typeorm migration:run -d dist/data-source.js",
-    "db:backup": "node scripts/backup-db.js"
+    "db:backup": "node scripts/backup-db.js",
+    "simulate:mqtt": "node scripts/simulate-mqtt.js"
   },
   "dependencies": {
     "@devicefarmer/adbkit-apkreader": "^3.2.4",
@@ -23,6 +24,7 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/typeorm": "^11.0.0",
+    "aedes": "^0.51.3",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.10.0",
     "class-transformer": "^0.5.1",
@@ -30,13 +32,16 @@
     "dotenv": "^16.6.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.24"
+    "typeorm": "^0.3.24",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.13",
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.2",
+    "mqtt": "^5.16.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.0"
   }
