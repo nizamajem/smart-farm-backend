@@ -14,7 +14,8 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/data-source.ts",
     "migration:run:prod": "typeorm migration:run -d dist/data-source.js",
     "db:backup": "node scripts/backup-db.js",
-    "simulate:mqtt": "node scripts/simulate-mqtt.js"
+    "simulate:mqtt": "node scripts/simulate-mqtt.js",
+    "bridge:mqtt": "node scripts/mqtt-tcp-bridge.js"
   },
   "dependencies": {
     "@devicefarmer/adbkit-apkreader": "^3.2.4",

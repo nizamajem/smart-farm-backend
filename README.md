@@ -116,6 +116,28 @@ boleh subscribe/publish semua topik — cocok untuk MQTT Explorer saat debugging
 
 ### Topik
 
+### Bridge laptop untuk firmware MQTT TCP
+
+Bila ESP32 hanya mendukung TCP dan server hanya dapat dijangkau lewat WSS,
+jalankan bridge pada laptop di WiFi yang sama:
+
+```powershell
+cd backend
+npm run bridge:mqtt -- wss://green.ptms3.com/api/mqtt 192.168.1.71 1884
+```
+
+Ganti IP dengan IP LAN laptop. Pada ESP32 isi Broker Host dengan IP tersebut
+tanpa `mqtt://`, dan port `1884`. Username/password tetap diteruskan ke broker
+Smart Farm; bridge tidak menyimpan kredensial. Laptop dan proses bridge harus
+tetap aktif. Bila koneksi ESP32 timeout, periksa izin firewall untuk Node pada
+jaringan lokal. TCP pada LAN tidak memakai TLS; koneksi laptop ke server memakai WSS.
+
+Bridge hanya meneruskan protokol, bukan mengubah format topik. Firmware ABmix
+yang memakai `ABmix/relay/0/set` belum dapat menerima perintah JSON
+`smartfarm/<id>/cmd` dari website tanpa adapter atau perubahan firmware.
+
+### Format pesan Smart Farm
+
 | Topik | Arah | Payload |
 |---|---|---|
 | `smartfarm/<id>/telemetry` | perangkat → server | `{"temperature":27.5,"humidity":70,"soilMoisture":55,"lightLux":12000}` (field boleh sebagian) |
