@@ -11,7 +11,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Device, HA_METRICS, HaEntityMap } from '../devices/device.entity';
 import { SensorReading } from '../devices/sensor-reading.entity';
+import { logHub, LogLevel } from '../logs/log-hub';
 import { SettingsService } from '../settings/settings.service';
+
+const halog = (level: LogLevel, message: string, data?: unknown) => logHub.push('ha', level, 'HomeAssistant', message, data);
 
 export interface HaState {
   entity_id: string;
@@ -167,6 +170,7 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
     } catch (e) {
       this.lastSyncAt = new Date();
       this.lastSyncError = (e as Error).message;
+      halog('error', `Sync gagal: ${this.lastSyncError}`);
       throw e;
     } finally {
       this.syncing = false;
@@ -175,7 +179,11 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
 
   private async runSync() {
     const devices = (await this.devices.find()).filter((d) => d.haEntities && Object.keys(d.haEntities).length);
-    if (!devices.length) return { devices: 0, inserted: 0, skipped: [] as { deviceId: number; reason: string }[] };
+    if (!devices.length) {
+      halog('debug', 'Sync: belum ada perangkat yang dipetakan ke entity HA');
+      return { devices: 0, inserted: 0, skipped: [] as { deviceId: number; reason: string }[] };
+    }
+    halog('info', `Sync mulai — ${devices.length} perangkat terpetakan`);
 
     const byId = new Map((await this.states()).map((s) => [s.entity_id, s]));
     let inserted = 0;
@@ -184,6 +192,7 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
     for (const device of devices) {
       const values: Partial<Record<(typeof HA_METRICS)[number], number>> = {};
       const missing: string[] = [];
+      const raw: Record<string, unknown> = {};
       let latest = 0;
       for (const metric of HA_METRICS) {
         const entityId = device.haEntities![metric];
@@ -196,12 +205,16 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
         const v = toNumber(s.state);
         if (v != null) values[metric] = v;
         latest = Math.max(latest, Date.parse(s.last_reported ?? s.last_updated) || 0);
+        raw[entityId] = { state: s.state, unit: s.attributes?.unit_of_measurement, last_updated: s.last_updated };
       }
       if (!Object.keys(values).length) {
-        skipped.push({ deviceId: device.id, reason: missing.length ? `entity tidak ada: ${missing.join(', ')}` : 'semua nilai kosong' });
+        const reason = missing.length ? `entity tidak ada: ${missing.join(', ')}` : 'semua nilai kosong / unavailable';
+        skipped.push({ deviceId: device.id, reason });
+        halog('warn', `Dilewati "${device.name}" — ${reason}`, raw);
         continue;
       }
       await this.readings.save(this.readings.create({ deviceId: device.id, ...values, source: 'ha' }));
+      halog('info', `✓ Data "${device.name}" tersimpan`, { tersimpan: values, mentah: raw });
       await this.devices.update(device.id, { lastSeenAt: latest ? new Date(latest) : new Date() });
       inserted++;
     }
@@ -217,6 +230,8 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
     }
     const url = new URL(`${this.baseUrl}/api${path}`);
     for (const [k, v] of Object.entries(params ?? {})) url.searchParams.set(k, v);
+    const label = `GET ${url.pathname}${url.search}`;
+    const start = Date.now();
 
     let res: Response;
     try {
@@ -228,16 +243,24 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
       const err = e as Error & { cause?: { code?: string } };
       const detail = err.cause?.code ?? err.message;
       this.log.error(`HA tidak terjangkau: ${detail}`);
+      halog('error', `${label} → GAGAL terhubung (${Date.now() - start} ms): ${detail}`);
       throw new BadGatewayException({ code: 'HA_API_ERROR', message: `Gagal terhubung ke Home Assistant: ${detail}` });
     }
     if (!res.ok) {
       const hint = res.status === 401 ? ' (token salah / kedaluwarsa)' : res.status === 404 ? ' (entity tidak ditemukan)' : '';
+      halog('error', `${label} → ${res.status}${hint} (${Date.now() - start} ms)`, await res.text().catch(() => ''));
       throw new BadGatewayException({
         code: 'HA_API_ERROR',
         message: `Home Assistant membalas ${res.status}${hint}`,
         status: res.status,
       });
     }
-    return (await res.json()) as T;
+    const body = (await res.json()) as T;
+    halog(
+      'info',
+      `${label} → ${res.status} (${Date.now() - start} ms)${Array.isArray(body) ? `, ${body.length} entity` : ''}`,
+      Array.isArray(body) ? undefined : body,
+    );
+    return body;
   }
 }

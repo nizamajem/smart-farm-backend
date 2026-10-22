@@ -11,6 +11,7 @@ import { HealthController } from './health.controller';
 import { HomeAssistantModule } from './home-assistant/home-assistant.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { IotModule } from './iot/iot.module';
+import { LogsModule } from './logs/logs.module';
 import { MqttModule } from './mqtt/mqtt.module';
 import { SeedService } from './seed/seed.service';
 import { SettingsModule } from './settings/settings.module';
@@ -40,6 +41,7 @@ import { UsersModule } from './users/users.module';
     AppReleasesModule,
     MqttModule,
     IntegrationsModule,
+    LogsModule,
   ],
   controllers: [HealthController],
   providers: [SeedService],

@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { HomeAssistantService } from '../home-assistant/home-assistant.service';
+import { logHub } from '../logs/log-hub';
 import { MqttService } from '../mqtt/mqtt.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -64,6 +65,7 @@ export class IntegrationsController {
       throw new BadRequestException('Integrasi tidak dikenal');
     }
     const label = name === 'mqtt' ? 'MQTT' : 'Home Assistant';
+    logHub.push(name === 'mqtt' ? 'mqtt' : 'ha', on ? 'info' : 'warn', 'Integrasi', `Saklar ${label} ${on ? 'ON' : 'OFF'} oleh ${user.email}`);
     await this.activity.action(user.sub, `integration.${on ? 'enable' : 'disable'}`, `${on ? 'Mengaktifkan' : 'Mematikan'} jalur ${label}`, {
       client,
     });
