@@ -15,6 +15,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { randomUUID } from 'crypto';
 import type { Response } from 'express';
 import { diskStorage } from 'multer';
+import { ActivityService } from '../activity/activity.service';
+import { Client, ClientInfo } from '../activity/client-info.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
@@ -33,7 +35,10 @@ const publicInfo = (r: AppRelease) => ({
 
 @Controller('app-releases')
 export class AppReleasesController {
-  constructor(private readonly releases: AppReleasesService) {}
+  constructor(
+    private readonly releases: AppReleasesService,
+    private readonly activity: ActivityService,
+  ) {}
 
   // ---------- publik (halaman login) ----------
 
@@ -76,18 +81,29 @@ export class AppReleasesController {
       limits: { fileSize: MAX_APK_BYTES, files: 1 },
     }),
   )
-  upload(
+  async upload(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() body: UploadReleaseBody,
     @CurrentUser() user: JwtUser,
+    @Client() client: ClientInfo,
   ) {
-    return this.releases.create(file, body, user.sub);
+    const release = await this.releases.create(file, body, user.sub);
+    await this.activity.action(user.sub, 'release.upload', `Mengunggah aplikasi Android versi ${release.version}`, {
+      client,
+      meta: { releaseId: release.id, versionCode: release.versionCode },
+    });
+    return release;
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.releases.remove(id);
+  async remove(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Client() client: ClientInfo) {
+    const result = await this.releases.remove(id);
+    await this.activity.action(user.sub, 'release.delete', `Menghapus aplikasi Android ${result.version}`, {
+      client,
+      meta: { releaseId: id },
+    });
+    return { ok: true };
   }
 }

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ActivityModule } from './activity/activity.module';
 import { AppReleasesModule } from './app-releases/app-releases.module';
 import { AuthModule } from './auth/auth.module';
 import { databaseOptions } from './database.config';
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
         signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN ?? '7d') as any },
       }),
     }),
+    ActivityModule,
     UsersModule,
     AuthModule,
     DevicesModule,

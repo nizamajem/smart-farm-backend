@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
+import { Client, ClientInfo } from '../activity/client-info.decorator';
 import { DevicesService } from './devices.service';
 import { CreateCommandDto, CreateDeviceDto, ReadingsQueryDto } from './dto';
 
@@ -15,8 +16,8 @@ export class DevicesController {
   }
 
   @Post()
-  create(@CurrentUser() user: JwtUser, @Body() dto: CreateDeviceDto) {
-    return this.devices.create(user, dto);
+  create(@CurrentUser() user: JwtUser, @Body() dto: CreateDeviceDto, @Client() client: ClientInfo) {
+    return this.devices.create(user, dto, client);
   }
 
   @Get(':id')
@@ -25,8 +26,8 @@ export class DevicesController {
   }
 
   @Delete(':id')
-  remove(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
-    return this.devices.remove(user, id);
+  remove(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Client() client: ClientInfo) {
+    return this.devices.remove(user, id, client);
   }
 
   @Get(':id/readings')
@@ -48,7 +49,8 @@ export class DevicesController {
     @CurrentUser() user: JwtUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateCommandDto,
+    @Client() client: ClientInfo,
   ) {
-    return this.devices.queueCommand(user, id, dto);
+    return this.devices.queueCommand(user, id, dto, client);
   }
 }

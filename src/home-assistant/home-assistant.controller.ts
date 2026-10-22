@@ -1,5 +1,8 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ActivityService } from '../activity/activity.service';
+import { Client, ClientInfo } from '../activity/client-info.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { HaEntitiesDto } from './dto';
 import { HomeAssistantService } from './home-assistant.service';
@@ -8,7 +11,10 @@ import { HomeAssistantService } from './home-assistant.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
 export class HomeAssistantController {
-  constructor(private readonly ha: HomeAssistantService) {}
+  constructor(
+    private readonly ha: HomeAssistantService,
+    private readonly activity: ActivityService,
+  ) {}
 
   @Get('health')
   health() {
@@ -38,13 +44,26 @@ export class HomeAssistantController {
   }
 
   @Put('devices/:id')
-  setDeviceEntities(@Param('id', ParseIntPipe) id: number, @Body() dto: HaEntitiesDto) {
-    return this.ha.setDeviceEntities(id, dto);
+  async setDeviceEntities(
+    @CurrentUser() user: JwtUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: HaEntitiesDto,
+    @Client() client: ClientInfo,
+  ) {
+    const device = await this.ha.setDeviceEntities(id, dto);
+    await this.activity.action(user.sub, 'ha.mapping', `Mengubah sensor Home Assistant untuk "${device.name}"`, {
+      deviceId: id,
+      client,
+      meta: { haEntities: device.haEntities },
+    });
+    return device;
   }
 
   @Post('sync')
   @HttpCode(200)
-  sync() {
-    return this.ha.sync();
+  async sync(@CurrentUser() user: JwtUser, @Client() client: ClientInfo) {
+    const result = await this.ha.sync();
+    await this.activity.action(user.sub, 'ha.sync', 'Mengambil data terbaru dari Home Assistant', { client, meta: result });
+    return result;
   }
 }

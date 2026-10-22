@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { LessThan, Repository } from 'typeorm';
+import { ActivityService } from '../activity/activity.service';
+import { ClientInfo } from '../activity/client-info.decorator';
 import { JwtUser } from '../auth/jwt-auth.guard';
 import { DEFAULT_RELAY_LABELS, Device } from './device.entity';
 import { CreateCommandDto, CreateDeviceDto, CreateReadingDto, MAX_ON_MS } from './dto';
@@ -19,6 +21,7 @@ export class DevicesService {
     @InjectRepository(Device) private readonly devices: Repository<Device>,
     @InjectRepository(SensorReading) private readonly readings: Repository<SensorReading>,
     @InjectRepository(RelayCommand) private readonly commands: Repository<RelayCommand>,
+    private readonly activity: ActivityService,
   ) {}
 
   // ---------- akses pengguna ----------
@@ -35,7 +38,7 @@ export class DevicesService {
     return this.withStatus(await this.getOwned(user, id));
   }
 
-  async create(user: JwtUser, dto: CreateDeviceDto) {
+  async create(user: JwtUser, dto: CreateDeviceDto, client?: ClientInfo) {
     const device = await this.devices.save(
       this.devices.create({
         name: dto.name,
@@ -45,11 +48,14 @@ export class DevicesService {
         apiKey: randomBytes(16).toString('hex'),
       }),
     );
+    await this.activity.action(user.sub, 'device.create', `Menambah perangkat "${device.name}"`, { deviceId: device.id, client });
     return this.withStatus(device);
   }
 
-  async remove(user: JwtUser, id: number) {
-    await this.devices.remove(await this.getOwned(user, id));
+  async remove(user: JwtUser, id: number, client?: ClientInfo) {
+    const device = await this.getOwned(user, id);
+    await this.devices.remove(device);
+    await this.activity.action(user.sub, 'device.delete', `Menghapus perangkat "${device.name}"`, { deviceId: id, client });
     return { ok: true };
   }
 
@@ -68,9 +74,10 @@ export class DevicesService {
     return this.commands.find({ where: { deviceId: id }, order: { createdAt: 'DESC' }, take: 20 });
   }
 
-  async queueCommand(user: JwtUser, id: number, dto: CreateCommandDto) {
-    await this.getOwned(user, id);
-    return this.commands.save(
+  async queueCommand(user: JwtUser, id: number, dto: CreateCommandDto, client?: ClientInfo) {
+    const device = await this.getOwned(user, id);
+    const label = device.relayLabels[dto.relay - 1] ?? `Relay ${dto.relay}`;
+    const command = await this.commands.save(
       this.commands.create({
         deviceId: id,
         relay: dto.relay,
@@ -79,6 +86,13 @@ export class DevicesService {
         requestedById: user.sub,
       }),
     );
+    await this.activity.action(
+      user.sub,
+      dto.action === 'ON' ? 'relay.on' : 'relay.off',
+      `${dto.action === 'ON' ? 'Menyalakan' : 'Mematikan'} ${label} di "${device.name}"`,
+      { deviceId: id, client, meta: { relay: dto.relay, commandId: command.id, durationMs: command.durationMs } },
+    );
+    return command;
   }
 
   // ---------- akses perangkat (ESP32) ----------

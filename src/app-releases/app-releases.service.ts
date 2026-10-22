@@ -104,7 +104,7 @@ export class AppReleasesService {
     if (!release) throw new NotFoundException('Rilis tidak ditemukan');
     await this.releases.remove(release);
     await unlink(join(releasesDir(), release.fileName)).catch(() => undefined);
-    return { ok: true };
+    return { ok: true, version: release.version };
   }
 
   /** Lokasi berkas untuk diunduh + nama unduhan yang rapi; menambah hitungan unduhan. */

@@ -21,4 +21,11 @@ export class User {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @Column({ type: 'datetime', nullable: true })
+  lastLoginAt: Date | null;
+
+  /** Terakhir ada aktivitas / request (diperbarui maks. sekali per menit) */
+  @Column({ type: 'datetime', nullable: true })
+  lastSeenAt: Date | null;
 }

@@ -1,5 +1,6 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ActivityService } from '../activity/activity.service';
 import { Role } from '../users/user.entity';
 
 export interface JwtUser {
@@ -11,7 +12,10 @@ export interface JwtUser {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    @Optional() private readonly activity?: ActivityService,
+  ) {}
 
   async canActivate(ctx: ExecutionContext) {
     const req = ctx.switchToHttp().getRequest();
@@ -22,6 +26,7 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Token tidak valid atau kedaluwarsa');
     }
+    this.activity?.touch(req.user.sub);
     return true;
   }
 }
