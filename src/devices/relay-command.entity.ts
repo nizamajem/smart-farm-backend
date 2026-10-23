@@ -4,7 +4,7 @@ import { Device } from './device.entity';
 
 export type RelayAction = 'ON' | 'OFF';
 /** pending → sent (diambil ESP32) → done (ESP32 konfirmasi). expired bila tidak diambil tepat waktu. */
-export type CommandStatus = 'pending' | 'sent' | 'done' | 'expired';
+export type CommandStatus = 'pending' | 'sent' | 'done' | 'expired' | 'failed';
 
 @Entity('relay_commands')
 export class RelayCommand {
@@ -31,6 +31,9 @@ export class RelayCommand {
 
   @Column({ type: 'varchar', default: 'pending' })
   status: CommandStatus;
+
+  @Column({ type: 'varchar', default: 'device' })
+  transport: 'device' | 'ha';
 
   @Column({ nullable: true })
   requestedById: number | null;

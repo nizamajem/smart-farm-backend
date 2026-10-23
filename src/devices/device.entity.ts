@@ -14,6 +14,8 @@ export const HA_METRICS = ['temperature', 'humidity', 'soilMoisture', 'lightLux'
 export type HaMetric = (typeof HA_METRICS)[number];
 /** Metrik sensor → entity_id Home Assistant, mis. { temperature: 'sensor.greenhouse_suhu' } */
 export type HaEntityMap = Partial<Record<HaMetric, string>>;
+export const RELAY_KEYS = ['relay1', 'relay2', 'relay3', 'relay4'] as const;
+export type HaRelayMap = Partial<Record<(typeof RELAY_KEYS)[number], string>>;
 
 @Entity('devices')
 export class Device {
@@ -36,6 +38,9 @@ export class Device {
   /** Bila diisi, data sensor perangkat ini diambil berkala dari Home Assistant. */
   @Column('simple-json', { nullable: true })
   haEntities: HaEntityMap | null;
+
+  @Column('simple-json', { nullable: true })
+  haRelays: HaRelayMap | null;
 
   @Column()
   ownerId: number;

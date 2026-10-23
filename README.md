@@ -228,3 +228,35 @@ volume / durasi uji manual. Catatan disimpan lokal per panel pada browser ini;
 belum tersinkron ke server, belum diterapkan ke perangkat, dan tidak menjalankan
 pompa. Kontrol perangkat tetap tersedia pada tab Kontrol menggunakan protokol
 Smart Farm; firmware ABmix masih memerlukan adapter topik sebelum dapat dikontrol.
+
+### Pemetaan relay Home Assistant
+
+Admin: buka **Perangkat → Pengaturan → Modul relay dari Home Assistant**.
+Pilih entity `switch.*` atau `light.*` untuk Relay 1 (Larutan A), 2 (Larutan B),
+3 (pH Up), dan 4 (pH Down), lalu simpan. Satu entity tidak boleh dipakai oleh
+lebih dari satu kanal/panel. Menyimpan tidak menjalankan relay. Kanal kosong
+tetap memakai protokol MQTT/HTTP Smart Farm; kanal yang dipetakan memakai HA.
+
+Status Nyala/Mati dibaca dari HA setiap 5 detik, termasuk ketika modul sensor
+air tidak online. Status HA bukan bukti pengukuran fisik aliran pompa.
+Di tab Kontrol, **Uji 3 detik** mengirim ON lalu OFF melalui action REST HA.
+Server tidak mengulang ON; OFF dicoba hingga tiga kali jika gagal. Matikan
+tetap tersedia saat HA dinonaktifkan atau status belum tersedia. Perintah HA
+dicatat dalam riwayat dengan transport `ha`, dan tidak dikirim ulang lewat
+MQTT atau diambil firmware HTTP. Kegagalan diberi status `failed`.
+
+Timer OFF ini berada di server dan bergantung pada koneksi. Auto-OFF di
+perangkat/otomasi HA tetap diperlukan agar pompa berhenti jika proses server
+mati atau jaringan putus. Uji satu kanal HA per panel pada satu waktu;
+pemetaan tidak dapat diubah selama uji aktif. Wizard kalibrasi tetap berupa
+catatan lokal dan tidak menjalankan uji secara otomatis.
+
+API: admin `GET /api/home-assistant/relay-entities` dan
+`PUT /api/home-assistant/devices/:id/relays` (body `relay1` sampai `relay4`,
+string kosong untuk menghapus). Pemilik/admin dapat membaca
+`GET /api/home-assistant/devices/:id/relays` dan mengirim kontrol melalui
+`POST /api/devices/:id/commands` yang sudah ada. Token HA hanya ada di backend.
+Migration AddHaRelays berjalan pada startup. Tes dengan HA tiruan:
+`npm run test:ha-relays` di folder backend.
+
+Action HA mengikuti [REST API Home Assistant](https://developers.home-assistant.io/docs/api/rest/).

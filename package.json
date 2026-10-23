@@ -15,7 +15,8 @@
     "migration:run:prod": "typeorm migration:run -d dist/data-source.js",
     "db:backup": "node scripts/backup-db.js",
     "simulate:mqtt": "node scripts/simulate-mqtt.js",
-    "bridge:mqtt": "node scripts/mqtt-tcp-bridge.js"
+    "bridge:mqtt": "node scripts/mqtt-tcp-bridge.js",
+    "test:ha-relays": "npm run build && node --test scripts/test-ha-relays.js"
   },
   "dependencies": {
     "@devicefarmer/adbkit-apkreader": "^3.2.4",

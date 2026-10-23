@@ -4,8 +4,10 @@ import { Client, ClientInfo } from '../activity/client-info.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
-import { HaEntitiesDto } from './dto';
+import { HaEntitiesDto, HaRelaysDto } from './dto';
 import { HomeAssistantService } from './home-assistant.service';
+import { HaRelayService } from './ha-relay.service';
+import { DevicesService } from '../devices/devices.service';
 
 @Controller('home-assistant')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -14,11 +16,33 @@ export class HomeAssistantController {
   constructor(
     private readonly ha: HomeAssistantService,
     private readonly activity: ActivityService,
+    private readonly relays: HaRelayService,
+    private readonly devices: DevicesService,
   ) {}
 
   @Get('health')
   health() {
     return this.ha.health();
+  }
+
+  @Get('relay-entities')
+  relayEntities() {
+    return this.relays.choices();
+  }
+
+  @Get('devices/:id/relays')
+  @Roles('admin', 'user')
+  async relayStatus(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
+    return this.relays.status(await this.devices.getOwned(user, id));
+  }
+
+  @Put('devices/:id/relays')
+  async setRelays(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HaRelaysDto, @Client() client: ClientInfo) {
+    const device = await this.relays.saveMapping(id, dto);
+    await this.activity.action(user.sub, 'ha.relay-mapping', `Mengubah pemetaan relay Home Assistant untuk "${device.name}"`, {
+      deviceId: id, client, meta: { haRelays: device.haRelays },
+    });
+    return device;
   }
 
   /** ?domain=sensor untuk menyaring entity */

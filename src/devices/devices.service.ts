@@ -6,7 +6,8 @@ import { ActivityService } from '../activity/activity.service';
 import { ClientInfo } from '../activity/client-info.decorator';
 import { JwtUser } from '../auth/jwt-auth.guard';
 import { DeviceEvents } from './device-events';
-import { DEFAULT_RELAY_LABELS, Device } from './device.entity';
+import { DEFAULT_RELAY_LABELS, Device, RELAY_KEYS } from './device.entity';
+import { HaRelayService } from '../home-assistant/ha-relay.service';
 import { CreateCommandDto, CreateDeviceDto, CreateReadingDto, MAX_ON_MS } from './dto';
 import { RelayCommand } from './relay-command.entity';
 import { ReadingSource, SensorReading } from './sensor-reading.entity';
@@ -24,6 +25,7 @@ export class DevicesService {
     @InjectRepository(RelayCommand) private readonly commands: Repository<RelayCommand>,
     private readonly activity: ActivityService,
     private readonly events: DeviceEvents,
+    private readonly haRelays: HaRelayService,
   ) {}
 
   // ---------- akses pengguna ----------
@@ -79,6 +81,7 @@ export class DevicesService {
   async queueCommand(user: JwtUser, id: number, dto: CreateCommandDto, client?: ClientInfo) {
     const device = await this.getOwned(user, id);
     const label = device.relayLabels[dto.relay - 1] ?? `Relay ${dto.relay}`;
+    const entityId = device.haRelays?.[RELAY_KEYS[dto.relay - 1]];
     const command = await this.commands.save(
       this.commands.create({
         deviceId: id,
@@ -86,6 +89,8 @@ export class DevicesService {
         action: dto.action,
         durationMs: dto.action === 'ON' ? Math.min(dto.durationMs ?? MAX_ON_MS, MAX_ON_MS) : 0,
         requestedById: user.sub,
+        transport: entityId ? 'ha' : 'device',
+        status: entityId ? 'sent' : 'pending',
       }),
     );
     await this.activity.action(
@@ -95,7 +100,18 @@ export class DevicesService {
       { deviceId: id, client, meta: { relay: dto.relay, commandId: command.id, durationMs: command.durationMs } },
     );
     // Jalur MQTT (bila aktif & perangkat tersambung) langsung meneruskan perintah ini
-    this.events.commandCreated(command);
+    if (entityId) {
+      try {
+        await this.haRelays.execute(command, entityId);
+        command.status = 'done';
+        command.ackAt = new Date();
+        await this.commands.save(command);
+      } catch (e) {
+        command.status = 'failed';
+        await this.commands.save(command);
+        throw e;
+      }
+    } else this.events.commandCreated(command);
     return command;
   }
 
@@ -127,7 +143,7 @@ export class DevicesService {
       { status: 'expired' },
     );
     const pending = await this.commands.find({
-      where: { deviceId: device.id, status: 'pending' },
+      where: { deviceId: device.id, status: 'pending', transport: 'device' },
       order: { createdAt: 'ASC' },
     });
     if (pending.length) {
@@ -140,7 +156,7 @@ export class DevicesService {
   }
 
   async ackCommand(device: Device, commandId: number) {
-    const cmd = await this.commands.findOne({ where: { id: commandId, deviceId: device.id } });
+    const cmd = await this.commands.findOne({ where: { id: commandId, deviceId: device.id, transport: 'device' } });
     if (!cmd) throw new NotFoundException('Perintah tidak ditemukan');
     cmd.status = 'done';
     cmd.ackAt = new Date();

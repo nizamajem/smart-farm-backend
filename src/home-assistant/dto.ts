@@ -4,6 +4,25 @@ import { IsOptional, IsString, Matches } from 'class-validator';
 const ENTITY_ID = /^([a-z_]+\.[a-z0-9_]+)?$/;
 const MSG = 'harus berupa entity_id Home Assistant, mis. sensor.greenhouse_suhu';
 
+const RELAY_ENTITY = /^(?:(?:switch|light)\.[a-z0-9_]+)?$/;
+export class HaRelaysDto {
+  @IsString()
+  @Matches(RELAY_ENTITY)
+  relay1: string;
+
+  @IsString()
+  @Matches(RELAY_ENTITY)
+  relay2: string;
+
+  @IsString()
+  @Matches(RELAY_ENTITY)
+  relay3: string;
+
+  @IsString()
+  @Matches(RELAY_ENTITY)
+  relay4: string;
+}
+
 export class HaEntitiesDto {
   @IsOptional()
   @IsString()
