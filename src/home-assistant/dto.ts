@@ -24,4 +24,39 @@ export class HaEntitiesDto {
   @IsString()
   @Matches(ENTITY_ID, { message: `lightLux ${MSG}` })
   lightLux?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `ph ${MSG}` })
+  ph?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `orp ${MSG}` })
+  orp?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `conductivity ${MSG}` })
+  conductivity?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `tds ${MSG}` })
+  tds?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `salinity ${MSG}` })
+  salinity?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `specificGravity ${MSG}` })
+  specificGravity?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(ENTITY_ID, { message: `conductivityFactor ${MSG}` })
+  conductivityFactor?: string;
 }

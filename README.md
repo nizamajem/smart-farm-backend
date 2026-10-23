@@ -191,3 +191,40 @@ Simulator siap pakai (contoh alur lengkap): `npm run simulate:mqtt -- <id> <devi
 
 Endpoint terkait: `GET /api/devices/:id/mqtt` (kredensial, pemilik/admin), `GET /api/integrations`,
 `PUT /api/integrations/mqtt|home-assistant` `{enabled}` (admin).
+
+
+### Panel nutrisi & pH
+
+Buka perangkat → **Nutrisi & pH**. Satu panel menggabungkan satu modul sensor
+kualitas air dan satu modul empat relay: Larutan A, Larutan B, pH Up, pH Down.
+Saat menambah perangkat, pilih jenis panel Nutrisi & pH agar label relay tersebut
+tersimpan. Label perangkat lama tidak diganti otomatis.
+
+Field telemetri tambahan (angka atau null bila tidak tersedia):
+
+| Field | Satuan |
+|---|---|
+| `ph` | pH, 0–14 |
+| `orp` | mV (boleh negatif) |
+| `conductivity` | µS/cm |
+| `tds` | ppm |
+| `salinity` | ppm |
+| `specificGravity` | tanpa satuan |
+| `conductivityFactor` | tanpa satuan |
+
+`temperature` (°C) dan `humidity` (%) tetap memakai field yang sudah ada.
+MQTT: kirim ke `smartfarm/<id>/telemetry`; HTTP: `POST /api/iot/readings`.
+Pemetaan Home Assistant tersedia di tab Pengaturan; pastikan satuan entity
+sesuai tabel (EC pada mS/cm perlu dikonversi menjadi µS/cm sebelum dikirim).
+Migration AddWaterQuality dijalankan otomatis pada startup backend, menambahkan
+kolom nullable tanpa mengubah data lama.
+
+Tombol **Lihat contoh data** hanya menampilkan snapshot referensi TDS02/Dosing01,
+bukan memasukkan angka contoh ke database. Nilai pH yang unknown tetap kosong.
+Status fisik relay belum tersedia pada API dan tidak disimpulkan dari perintah.
+
+Wizard kalibrasi mencatat dua pembacaan buffer pH dan menghitung debit pompa dari
+volume / durasi uji manual. Catatan disimpan lokal per panel pada browser ini;
+belum tersinkron ke server, belum diterapkan ke perangkat, dan tidak menjalankan
+pompa. Kontrol perangkat tetap tersedia pada tab Kontrol menggunakan protokol
+Smart Farm; firmware ABmix masih memerlukan adapter topik sebelum dapat dikontrol.

@@ -10,7 +10,7 @@ import { User } from '../users/user.entity';
 
 export const DEFAULT_RELAY_LABELS = ['Pompa Air', 'Kipas', 'Lampu Tumbuh', 'Pompa Nutrisi'];
 
-export const HA_METRICS = ['temperature', 'humidity', 'soilMoisture', 'lightLux'] as const;
+export const HA_METRICS = ['temperature', 'humidity', 'soilMoisture', 'lightLux', 'ph', 'orp', 'conductivity', 'tds', 'salinity', 'specificGravity', 'conductivityFactor'] as const;
 export type HaMetric = (typeof HA_METRICS)[number];
 /** Metrik sensor → entity_id Home Assistant, mis. { temperature: 'sensor.greenhouse_suhu' } */
 export type HaEntityMap = Partial<Record<HaMetric, string>>;

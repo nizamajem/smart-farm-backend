@@ -77,4 +77,39 @@ export class CreateReadingDto {
   @IsOptional()
   @IsNumber()
   lightLux?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(14)
+  ph?: number;
+
+  @IsOptional()
+  @IsNumber()
+  orp?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  conductivity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tds?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  salinity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  specificGravity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  conductivityFactor?: number;
 }

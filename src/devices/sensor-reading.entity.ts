@@ -32,6 +32,27 @@ export class SensorReading {
   @Column('real', { nullable: true })
   lightLux: number | null;
 
+  @Column('real', { nullable: true })
+  ph: number | null;
+
+  @Column('real', { nullable: true })
+  orp: number | null;
+
+  @Column('real', { nullable: true })
+  conductivity: number | null;
+
+  @Column('real', { nullable: true })
+  tds: number | null;
+
+  @Column('real', { nullable: true })
+  salinity: number | null;
+
+  @Column('real', { nullable: true })
+  specificGravity: number | null;
+
+  @Column('real', { nullable: true })
+  conductivityFactor: number | null;
+
   /** Jalur masuk data: http (ESP32 REST), mqtt, atau ha (Home Assistant) */
   @Column({ type: 'varchar', default: 'http' })
   source: ReadingSource;
