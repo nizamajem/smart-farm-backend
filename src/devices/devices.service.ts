@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { LessThan, Repository } from 'typeorm';
@@ -8,7 +8,7 @@ import { JwtUser } from '../auth/jwt-auth.guard';
 import { DeviceEvents } from './device-events';
 import { DEFAULT_RELAY_LABELS, Device, RELAY_KEYS } from './device.entity';
 import { HaRelayService } from '../home-assistant/ha-relay.service';
-import { CreateCommandDto, CreateDeviceDto, CreateReadingDto, MAX_ON_MS } from './dto';
+import { CreateCommandDto, CreateDeviceDto, CreateReadingDto, MAX_ON_MS, ReadingsQueryDto } from './dto';
 import { RelayCommand } from './relay-command.entity';
 import { ReadingSource, SensorReading } from './sensor-reading.entity';
 
@@ -63,13 +63,17 @@ export class DevicesService {
     return { ok: true };
   }
 
-  async readingsFor(user: JwtUser, id: number, limit = 48) {
+  async readingsFor(user: JwtUser, id: number, limit = 48, query: ReadingsQueryDto = {}) {
     await this.getOwned(user, id);
-    const rows = await this.readings.find({
-      where: { deviceId: id },
-      order: { createdAt: 'DESC' },
-      take: limit,
-    });
+    if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) {
+      throw new BadRequestException('Tanggal akhir harus setelah tanggal awal');
+    }
+    const builder = this.readings.createQueryBuilder('reading')
+      .where('reading.deviceId = :id', { id });
+    if (query.from) builder.andWhere('reading.createdAt >= :from', { from: new Date(query.from) });
+    if (query.to) builder.andWhere('reading.createdAt < :to', { to: new Date(query.to) });
+    const rows = await builder.orderBy('reading.createdAt', 'DESC')
+      .addOrderBy('reading.id', 'DESC').skip(query.offset ?? 0).take(limit).getMany();
     return rows.reverse();
   }
 

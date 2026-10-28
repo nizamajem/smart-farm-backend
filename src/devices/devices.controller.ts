@@ -36,7 +36,7 @@ export class DevicesController {
     @Param('id', ParseIntPipe) id: number,
     @Query() query: ReadingsQueryDto,
   ) {
-    return this.devices.readingsFor(user, id, query.limit);
+    return this.devices.readingsFor(user, id, query.limit, query);
   }
 
   @Get(':id/commands')
