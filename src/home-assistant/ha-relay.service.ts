@@ -10,6 +10,7 @@ import type { HaState } from './home-assistant.service';
 
 const NAMES = ['Larutan A', 'Larutan B', 'pH Up', 'pH Down'];
 const validEntity = (id: string) => /^(switch|light)\.[a-z0-9_]+$/.test(id);
+export const MAX_MIX_ON_MS = 60_000;
 
 /** Direct HA commands have their own route; they never enter the MQTT/HTTP queue. */
 @Injectable()
@@ -17,6 +18,23 @@ export class HaRelayService implements OnModuleDestroy {
   private readonly active = new Map<string, { cancel: () => void; finished: Promise<void> }>();
   private saving = false;
   private stopping = false;
+  private readonly mcbBusy = new Set<number>();
+  private readonly mixes = new Map<number, { token: symbol; cancelled: boolean }>();
+
+  reserveMix(id: number) {
+    if (this.saving || this.stopping || this.mixes.has(id)) throw new ConflictException('Campuran sedang berjalan');
+    const token = Symbol('mix');
+    this.mixes.set(id, { token, cancelled: false });
+    return token;
+  }
+  mixCancelled(id: number, token: symbol) { return this.mixes.get(id)?.token !== token || !!this.mixes.get(id)?.cancelled; }
+  releaseMix(id: number, token: symbol) { if (this.mixes.get(id)?.token === token) this.mixes.delete(id); }
+  async cancelMix(device: Device) {
+    const mix = this.mixes.get(device.id);
+    if (mix) mix.cancelled = true;
+    for (const id of Object.values(device.haRelays || {})) this.active.get(id)?.cancel();
+    await Promise.all([device.haRelays?.relay1, device.haRelays?.relay2].filter((id): id is string => !!id).map(id => this.turnOff(id)));
+  }
 
   constructor(
     @InjectRepository(Device) private readonly devices: Repository<Device>,
@@ -49,6 +67,7 @@ export class HaRelayService implements OnModuleDestroy {
   }
 
   async saveMapping(deviceId: number, map: HaRelayMap) {
+    if (this.mixes.has(deviceId)) throw new ConflictException('Hentikan campuran sebelum mengubah relay');
     if (this.saving) throw new ConflictException('Pemetaan sedang disimpan, coba lagi');
     this.saving = true;
     try {
@@ -69,7 +88,7 @@ export class HaRelayService implements OnModuleDestroy {
         const states = await this.choices();
         if (ids.some((id) => !states.some((s) => s.entity_id === id))) throw new BadRequestException('Entity relay tidak ditemukan di Home Assistant. Muat ulang daftar entity.');
         const other = await this.devices.find();
-        if (other.some((d) => d.id !== deviceId && Object.values(d.haRelays || {}).some((id) => ids.includes(id)))) {
+        if (other.some((d) => (d.haMcbEntity && ids.includes(d.haMcbEntity)) || (d.id !== deviceId && Object.values(d.haRelays || {}).some((id) => ids.includes(id))))) {
           throw new BadRequestException('Entity relay sudah dipakai panel lain');
         }
       }
@@ -96,6 +115,74 @@ export class HaRelayService implements OnModuleDestroy {
     });
   }
 
+  async saveMcbMapping(deviceId: number, entityId: string) {
+    if (this.saving || this.mcbBusy.has(deviceId)) throw new ConflictException('Tunggu perintah selesai');
+    this.saving = true;
+    try {
+      const device = await this.devices.findOneBy({ id: deviceId });
+      if (!device) throw new NotFoundException('Perangkat tidak ditemukan');
+      if (entityId) {
+        if (!/^switch\.[a-z0-9_]+$/.test(entityId)) throw new BadRequestException('Pilih entity switch untuk Smart MCB');
+        const choices = await this.choices();
+        if (!choices.some(s => s.entity_id === entityId)) throw new BadRequestException('Entity MCB tidak ditemukan di Home Assistant');
+        const all = await this.devices.find();
+        if (all.some(d => Object.values(d.haRelays || {}).includes(entityId) || (d.id !== deviceId && d.haMcbEntity === entityId))) {
+          throw new BadRequestException('Entity sudah digunakan oleh relay atau MCB panel lain');
+        }
+      }
+      await this.devices.update(deviceId, { haMcbEntity: entityId || null });
+      return this.devices.findOneByOrFail({ id: deviceId });
+    } finally { this.saving = false; }
+  }
+
+  async mcbStatus(device: Device) {
+    const entityId = device.haMcbEntity;
+    const states = entityId || Object.values(device.haMcbSensors || {}).some(Boolean) ? await this.request<HaState[]>('/states') : [];
+    const state = states.find(s => s.entity_id === entityId);
+    const metric = (id: string | undefined, kind: 'power' | 'energy') => {
+      const s = states.find(s => s.entity_id === id);
+      if (!s || !s.state.trim() || !Number.isFinite(Number(s.state)) || Number(s.state) < 0) return null;
+      const units: Record<string, number | undefined> = kind === 'power' ? { W: 1, kW: 1000 } : { Wh: .001, kWh: 1 };
+      const factor = units[s.attributes.unit_of_measurement || ''];
+      if (factor == null) return null;
+      const value = Number(s.state) * factor;
+      return Number.isFinite(value) ? { value, updatedAt: s.last_updated || null } : null;
+    };
+    return {
+      entityId,
+      state: state?.state === 'on' || state?.state === 'off' ? state.state : entityId ? 'unavailable' : 'unmapped',
+      friendlyName: state?.attributes.friendly_name || entityId,
+      updatedAt: state?.last_updated || null,
+      power: metric(device.haMcbSensors?.power, 'power'),
+      energy: metric(device.haMcbSensors?.energy, 'energy'),
+    };
+  }
+
+  async saveMcbSensors(id: number, sensors: { power: string; energy: string }) {
+    const states = sensors.power || sensors.energy ? await this.request<HaState[]>('/states') : [];
+    for (const key of ['power', 'energy'] as const) {
+      if (!sensors[key]) continue;
+      const state = states.find(s => s.entity_id === sensors[key]);
+      const units = key === 'power' ? ['W', 'kW'] : ['Wh', 'kWh'];
+      if (!state || !units.includes(state.attributes.unit_of_measurement || '')) throw new BadRequestException(`Pilih sensor ${key === 'power' ? 'daya W/kW' : 'energi Wh/kWh'} yang sesuai`);
+    }
+    if (sensors.power && sensors.power === sensors.energy) throw new BadRequestException('Sensor daya dan energi harus berbeda');
+    await this.devices.update(id, { haMcbSensors: { power: sensors.power || undefined, energy: sensors.energy || undefined } });
+    return this.devices.findOneByOrFail({ id });
+  }
+
+  async executeMcb(deviceId: number, action: 'ON' | 'OFF') {
+    if (this.saving || this.stopping || this.mcbBusy.has(deviceId)) throw new ConflictException('MCB sedang menerima perintah');
+    this.mcbBusy.add(deviceId);
+    try {
+      const device = await this.devices.findOneBy({ id: deviceId });
+      if (!device?.haMcbEntity) throw new BadRequestException('Smart MCB belum dipetakan');
+      if (action === 'ON' && !(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Integrasi Home Assistant sedang dimatikan');
+      await this.set(device.haMcbEntity, action === 'ON');
+      return this.mcbStatus(device);
+    } finally { this.mcbBusy.delete(deviceId); }
+  }
+
   private async set(entityId: string, on: boolean) {
     const domain = entityId.split('.')[0];
     await this.request(`/services/${domain}/${on ? 'turn_on' : 'turn_off'}`, { entity_id: entityId });
@@ -111,13 +198,18 @@ export class HaRelayService implements OnModuleDestroy {
     throw failure;
   }
 
-  async execute(command: RelayCommand, entityId: string) {
+  async execute(command: RelayCommand, entityId: string, mixToken?: symbol) {
     if (!validEntity(entityId)) throw new BadRequestException('Entity relay tidak valid');
     if (command.action === 'OFF') {
+      const mix = this.mixes.get(command.deviceId);
+      if (mix && !mixToken) mix.cancelled = true;
       this.active.get(entityId)?.cancel();
       await this.turnOff(entityId);
       return;
     }
+    const mix = this.mixes.get(command.deviceId);
+    if (mix && (mix.token !== mixToken || mix.cancelled)) throw new ConflictException('Campuran sedang berjalan atau dihentikan');
+    if (mixToken && !mix) throw new ConflictException('Sesi campuran berakhir');
     if (this.stopping || this.saving) throw new ConflictException('Relay belum siap menerima uji');
     if (!(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Integrasi Home Assistant sedang dimatikan');
     if (this.active.has(entityId)) throw new ConflictException('Relay ini sedang diuji. Tunggu selesai atau kirim Matikan.');
@@ -141,10 +233,9 @@ export class HaRelayService implements OnModuleDestroy {
       const current = await this.devices.findOneBy({ id: command.deviceId });
       if (current?.haRelays?.[RELAY_KEYS[command.relay - 1]] !== entityId) throw new ConflictException('Pemetaan berubah. Muat ulang panel.');
       if (wasCancelled) return;
-      const started = Date.now();
       attemptedOn = true;
       await this.set(entityId, true);
-      const remaining = Math.max(0, Math.min(command.durationMs, MAX_ON_MS) - (Date.now() - started));
+      const remaining = Math.min(command.durationMs, mixToken ? MAX_MIX_ON_MS : MAX_ON_MS);
       await Promise.race([cancelled, new Promise<void>((resolve) => { timer = setTimeout(resolve, remaining); })]);
     } finally {
       clearTimeout(timer);

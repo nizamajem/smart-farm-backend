@@ -134,6 +134,10 @@ test('HA relay mapping and command routing (mocked HA, in-memory DB)', async (t)
     });
     await t.test('migration rollback preserves existing devices and commands', async () => {
       const count = (await db.query('SELECT count(*) AS total FROM relay_commands'))[0].total;
+      // Roll back newer migrations before testing the relay migration itself.
+      while ((await db.query('SELECT name FROM migrations ORDER BY timestamp DESC LIMIT 1'))[0]?.name !== 'AddHaRelays1792800000000') {
+        await db.undoLastMigration();
+      }
       await db.undoLastMigration();
       assert.ok((await db.query('SELECT name FROM devices WHERE id = ?', [device.id])).length);
       assert.ok((await db.query('SELECT id FROM relay_commands')).length);

@@ -42,6 +42,18 @@ export class Device {
   @Column('simple-json', { nullable: true })
   haRelays: HaRelayMap | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  haMcbEntity: string | null;
+
+  @Column('simple-json', { nullable: true })
+  haMcbSensors: { power?: string; energy?: string } | null;
+
+  @Column('simple-json', { nullable: true })
+  nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | null;
+
+  @Column('simple-json', { nullable: true })
+  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; startedAt: string; finishedAt?: string; error?: string } | null;
+
   @Column()
   ownerId: number;
 

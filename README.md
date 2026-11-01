@@ -260,3 +260,24 @@ Migration AddHaRelays berjalan pada startup. Tes dengan HA tiruan:
 `npm run test:ha-relays` di folder backend.
 
 Action HA mengikuti [REST API Home Assistant](https://developers.home-assistant.io/docs/api/rest/).
+
+## Smart MCB dari Home Assistant
+
+Satu Smart MCB per panel, terpisah dari empat relay dosing. Setelah backend
+versi baru dijalankan, migration `AddSmartMcb` berjalan otomatis.
+Admin membuka kartu **Smart MCB → Hubungkan Smart MCB**, memilih entity
+`switch.*`, lalu **Simpan MCB**. Pemetaan tersimpan di server dan dipakai
+bersama oleh web dan aplikasi. Entity tidak boleh dipakai juga untuk relay
+atau MCB panel lain. Menyimpan pemetaan tidak mengirim ON/OFF.
+
+Status diperbarui dari HA setiap 5 detik. Pemilik perangkat dan admin dapat
+mengirim ON/OFF. Perintah MCB mempertahankan posisi switch; tidak memakai
+timer uji dosing 3 detik. Status tidak tersedia atau gagal diambil tidak
+ditampilkan sebagai Mati. Pemilihan entity dilakukan oleh admin di web;
+aplikasi menampilkan MCB di tab **Kontrol**.
+
+API: `GET /api/home-assistant/devices/:id/mcb`, admin
+`PUT /api/home-assistant/devices/:id/mcb` (`entityId`, kosong untuk melepas),
+dan `POST /api/home-assistant/devices/:id/mcb/command` (`action: ON | OFF`).
+Token HA tetap di backend. Tes tanpa perangkat fisik:
+`npm run build` lalu `node --test scripts/test-smart-mcb.js`.

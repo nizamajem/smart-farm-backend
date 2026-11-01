@@ -4,7 +4,7 @@ import { Client, ClientInfo } from '../activity/client-info.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
-import { HaEntitiesDto, HaRelaysDto } from './dto';
+import { HaEntitiesDto, HaRelaysDto, HaMcbDto, HaMcbCommandDto, HaMcbSensorsDto } from './dto';
 import { HomeAssistantService } from './home-assistant.service';
 import { HaRelayService } from './ha-relay.service';
 import { DevicesService } from '../devices/devices.service';
@@ -28,6 +28,37 @@ export class HomeAssistantController {
   @Get('relay-entities')
   relayEntities() {
     return this.relays.choices();
+  }
+
+  @Get('devices/:id/mcb')
+  @Roles('admin', 'user')
+  async mcbStatus(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
+    return this.relays.mcbStatus(await this.devices.getOwned(user, id));
+  }
+
+  @Put('devices/:id/mcb')
+  async setMcb(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HaMcbDto, @Client() client: ClientInfo) {
+    await this.devices.getOwned(user, id);
+    const device = await this.relays.saveMcbMapping(id, dto.entityId);
+    await this.activity.action(user.sub, 'ha.mcb-mapping', `Mengubah Smart MCB untuk "${device.name}"`, { deviceId: id, client });
+    return device;
+  }
+
+  @Post('devices/:id/mcb/command')
+  @Roles('admin', 'user')
+  async commandMcb(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HaMcbCommandDto, @Client() client: ClientInfo) {
+    await this.devices.getOwned(user, id);
+    const result = await this.relays.executeMcb(id, dto.action);
+    await this.activity.action(user.sub, 'ha.mcb-command', `Smart MCB ${dto.action}`, { deviceId: id, client });
+    return result;
+  }
+
+  @Put('devices/:id/mcb/sensors')
+  async setMcbSensors(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HaMcbSensorsDto, @Client() client: ClientInfo) {
+    await this.devices.getOwned(user, id);
+    const device = await this.relays.saveMcbSensors(id, dto);
+    await this.activity.action(user.sub, 'ha.mcb-sensors', 'Mengubah sensor listrik panel', { deviceId: id, client });
+    return device;
   }
 
   @Get('devices/:id/relays')

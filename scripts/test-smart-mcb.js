@@ -1,0 +1,90 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { DataSource } = require('typeorm');
+const { Reflector } = require('@nestjs/core');
+const { databaseOptions } = require('../dist/database.config');
+const { Device } = require('../dist/devices/device.entity');
+const { User } = require('../dist/users/user.entity');
+const { SensorReading } = require('../dist/devices/sensor-reading.entity');
+const { RelayCommand } = require('../dist/devices/relay-command.entity');
+const { DevicesService } = require('../dist/devices/devices.service');
+const { HaRelayService } = require('../dist/home-assistant/ha-relay.service');
+const { HomeAssistantController } = require('../dist/home-assistant/home-assistant.controller');
+const { RolesGuard } = require('../dist/auth/roles.guard');
+
+test('Smart MCB integration uses real HA state, persistent switch commands and isolated mapping', async () => {
+  const originalFetch = global.fetch;
+  const previousBase = process.env.HA_BASE_URL, previousToken = process.env.HA_TOKEN;
+  process.env.HA_BASE_URL = 'http://ha-test.invalid';
+  process.env.HA_TOKEN = 'test-only';
+  const db = new DataSource({ ...databaseOptions(), database: ':memory:' });
+  await db.initialize();
+  let enabled = true, fail = false;
+  const calls = [];
+  const states = new Map([['switch.main_mcb', 'off'], ['switch.pump_a', 'off'], ['light.grow', 'on'], ['sensor.mcb_power', '0.125'], ['sensor.mcb_energy', '1500']]);
+  global.fetch = async (url, init) => {
+    if (fail) return new Response('{}', { status: 503 });
+    const path = new URL(url).pathname;
+    if (init.method === 'POST') {
+      const id = JSON.parse(init.body).entity_id;
+      calls.push({ path, id });
+      states.set(id, path.endsWith('turn_on') ? 'on' : 'off');
+      return new Response('[]');
+    }
+    return new Response(JSON.stringify([...states].map(([entity_id, state]) => ({ entity_id, state, attributes: { friendly_name: entity_id, ...(entity_id === 'sensor.mcb_power' ? { unit_of_measurement: 'kW' } : entity_id === 'sensor.mcb_energy' ? { unit_of_measurement: 'Wh' } : {}) }, last_updated: new Date().toISOString() }))));
+  };
+  try {
+    await db.runMigrations();
+    const owner = await db.getRepository(User).save({ name: 'MCB test', email: 'mcb@example.invalid', passwordHash: 'test-only', role: 'user' });
+    const repo = db.getRepository(Device);
+    const device = await repo.save({ name: 'MCB tank', ownerId: owner.id, apiKey: 'mcb-test', relayLabels: ['A', 'B', 'Up', 'Down'] });
+    const other = await repo.save({ name: 'Other tank', ownerId: owner.id, apiKey: 'mcb-other', relayLabels: ['A', 'B', 'Up', 'Down'] });
+    const relays = new HaRelayService(repo, { getBool: async () => enabled });
+    const devices = new DevicesService(repo, db.getRepository(SensorReading), db.getRepository(RelayCommand), {}, {}, relays);
+    const controller = new HomeAssistantController({}, { action: async () => {} }, relays, devices);
+    const user = { sub: owner.id, role: 'user' };
+    assert.equal((await relays.mcbStatus(device)).state, 'unmapped');
+    await assert.rejects(relays.saveMcbMapping(device.id, 'light.grow'));
+    await relays.saveMapping(device.id, { relay1: 'switch.pump_a' });
+    await assert.rejects(relays.saveMcbMapping(device.id, 'switch.pump_a'));
+    const mapped = await relays.saveMcbMapping(device.id, 'switch.main_mcb');
+    assert.equal(mapped.haMcbEntity, 'switch.main_mcb');
+    await relays.saveMcbSensors(device.id, { power: 'sensor.mcb_power', energy: 'sensor.mcb_energy' });
+    const energy = await controller.mcbStatus(user, device.id);
+    assert.equal(energy.power.value, 125);
+    assert.equal(energy.energy.value, 1.5);
+    await assert.rejects(relays.saveMcbSensors(device.id, { power: 'sensor.mcb_energy', energy: '' }));
+    states.set('sensor.mcb_power', 'unavailable');
+    assert.equal((await controller.mcbStatus(user, device.id)).power, null);
+    states.set('sensor.mcb_power', '0');
+    assert.equal((await controller.mcbStatus(user, device.id)).power.value, 0);
+    assert.equal(calls.length, 0, 'mapping must not actuate the switch');
+    await assert.rejects(relays.saveMcbMapping(other.id, 'switch.main_mcb'));
+    await assert.rejects(relays.saveMapping(other.id, { relay1: 'switch.main_mcb' }));
+    await assert.rejects(controller.commandMcb({ sub: owner.id + 1, role: 'user' }, device.id, { action: 'ON' }, {}));
+    assert.equal(calls.length, 0, 'unauthorized command must never reach HA');
+    assert.equal((await controller.commandMcb(user, device.id, { action: 'ON' }, {})).state, 'on');
+    assert.deepEqual(calls, [{ path: '/api/services/switch/turn_on', id: 'switch.main_mcb' }], 'MCB must not use the dosing auto-OFF sequence');
+    enabled = false;
+    await assert.rejects(controller.commandMcb(user, device.id, { action: 'ON' }, {}));
+    assert.equal((await controller.commandMcb(user, device.id, { action: 'OFF' }, {})).state, 'off');
+    states.set('switch.main_mcb', 'unavailable');
+    assert.equal((await controller.mcbStatus(user, device.id)).state, 'unavailable');
+    fail = true;
+    await assert.rejects(controller.mcbStatus(user, device.id));
+    await assert.rejects(controller.commandMcb(user, device.id, { action: 'OFF' }, {}));
+    fail = false;
+    await relays.saveMcbMapping(device.id, '');
+    assert.equal((await controller.mcbStatus(user, device.id)).state, 'unmapped');
+    const guard = new RolesGuard(new Reflector());
+    const ctx = (method) => ({ getHandler: () => HomeAssistantController.prototype[method], getClass: () => HomeAssistantController, switchToHttp: () => ({ getRequest: () => ({ user }) }) });
+    assert.equal(guard.canActivate(ctx('mcbStatus')), true);
+    assert.equal(guard.canActivate(ctx('commandMcb')), true);
+    assert.throws(() => guard.canActivate(ctx('setMcb')));
+  } finally {
+    global.fetch = originalFetch;
+    if (previousBase === undefined) delete process.env.HA_BASE_URL; else process.env.HA_BASE_URL = previousBase;
+    if (previousToken === undefined) delete process.env.HA_TOKEN; else process.env.HA_TOKEN = previousToken;
+    await db.destroy();
+  }
+});

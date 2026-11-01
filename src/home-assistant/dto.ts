@@ -1,4 +1,24 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches } from 'class-validator';
+
+export class HaMcbDto {
+  @IsString()
+  @Matches(/^(?:switch\.[a-z0-9_]+)?$/)
+  entityId: string;
+}
+
+export class HaMcbCommandDto {
+  @IsIn(['ON', 'OFF'])
+  action: 'ON' | 'OFF';
+}
+
+export class HaMcbSensorsDto {
+  @IsString()
+  @Matches(/^(?:sensor\.[a-z0-9_]+)?$/)
+  power: string;
+  @IsString()
+  @Matches(/^(?:sensor\.[a-z0-9_]+)?$/)
+  energy: string;
+}
 
 // entity_id HA, mis. "sensor.greenhouse_suhu". String kosong = hapus pemetaan.
 const ENTITY_ID = /^([a-z_]+\.[a-z0-9_]+)?$/;
