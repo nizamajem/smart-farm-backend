@@ -303,8 +303,9 @@ web dan aplikasi; form utama hanya meminta liter air tandon.
 menunggu durasinya, mematikan A, lalu melakukan hal yang sama untuk B.
 Sirkulasi air harus sudah aktif. Kedua relay harus dipetakan melalui HA
 dan semua relay yang dipetakan harus OFF sebelum mulai. Batas per relay
-0,5–60 detik, ditolak bila di luar batas, tidak dipotong diam-diam ke
-3 detik. Endpoint uji relay dan firmware PlatformIO tetap memiliki batas
+0,5–60 detik. Hitung Takaran tetap menampilkan hasil di luar batas beserta
+rentang volume yang sesuai, tetapi Campur Nutrisi ditolak sampai durasinya
+valid; durasi tidak dipotong diam-diam ke 3 detik. Endpoint uji relay dan firmware PlatformIO tetap memiliki batas
 uji 3 detik. Gunakan ESPHome/HA untuk endpoint campuran ini.
 
 Server mengunci panel selama proses, menyimpan target durasi dan status,
@@ -327,3 +328,11 @@ API pemilik/admin: `GET /api/devices/:id/nutrients`,
 (`liters`, `newWater: true`, `calibrationKey` dari plan, `requestId`),
 dan `POST .../nutrients/stop`. Migration berjalan saat backend diperbarui.
 Tes tanpa perangkat: `node --test scripts/test-nutrients.js` setelah build.
+
+Penyimpanan pemetaan sensor bersifat patch: kolom yang tidak dikirim tetap
+dipertahankan, string kosong hanya melepas kolom yang disebutkan. Web hanya
+mengirim kolom yang diedit. Penyimpanan ini tidak menulis ulang seluruh baris
+perangkat, sehingga tidak menimpa kalibrasi campuran yang tersimpan bersamaan.
+Error endpoint nutrients dicatat dengan `reason` di log HTTP, tanpa menyalin
+body request atau kredensial. Tes HTTP dan regresi pemetaan pH:
+`node --test scripts/test-nutrient-http-and-settings.js` setelah build.

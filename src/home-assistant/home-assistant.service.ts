@@ -64,6 +64,7 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('HomeAssistant');
   private timer?: NodeJS.Timeout;
   private syncing = false;
+  private mappingQueue: Promise<unknown> = Promise.resolve();
   /** Statistik untuk halaman Integrasi */
   lastSyncAt: Date | null = null;
   lastSyncResult: { devices: number; inserted: number; skipped: { deviceId: number; reason: string }[] } | null = null;
@@ -146,15 +147,21 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
   // ---------- pemetaan & sinkronisasi ----------
 
   async setDeviceEntities(deviceId: number, map: HaEntityMap) {
-    const device = await this.devices.findOne({ where: { id: deviceId } });
-    if (!device) throw new NotFoundException('Perangkat tidak ditemukan');
-    const cleaned: HaEntityMap = {};
-    for (const metric of HA_METRICS) {
-      const id = map[metric]?.trim();
-      if (id) cleaned[metric] = id;
-    }
-    device.haEntities = Object.keys(cleaned).length ? cleaned : null;
-    return this.devices.save(device);
+    const write = this.mappingQueue.then(async () => {
+      const device = await this.devices.findOne({ where: { id: deviceId } });
+      if (!device) throw new NotFoundException('Perangkat tidak ditemukan');
+      const cleaned: HaEntityMap = { ...device.haEntities };
+      for (const metric of HA_METRICS) {
+        if (!Object.prototype.hasOwnProperty.call(map, metric) || map[metric] == null) continue;
+        const id = map[metric]!.trim();
+        if (id) cleaned[metric] = id;
+        else delete cleaned[metric];
+      }
+      await this.devices.update(deviceId, { haEntities: Object.keys(cleaned).length ? cleaned : null });
+      return this.devices.findOneByOrFail({ id: deviceId });
+    });
+    this.mappingQueue = write.catch(() => undefined);
+    return write;
   }
 
   /** Ambil state terbaru semua entity yang dipetakan lalu simpan sebagai SensorReading. */

@@ -1,17 +1,22 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsNumber, IsString, Matches, Max, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { DevicesService } from './devices.service';
 import { NutrientsService } from './nutrients.service';
 
 export class RecipeDto {
-  @IsNumber() @Min(.01) @Max(1000000) liters: number;
-  @IsNumber() @Min(.5) @Max(60) aSeconds: number;
-  @IsNumber() @Min(.5) @Max(60) bSeconds: number;
+  @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
+  @IsNumber({}, { message: 'Liter acuan harus berupa angka' }) @Min(.01) @Max(1000000) liters: number;
+  @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
+  @IsNumber({}, { message: 'Detik relay A harus berupa angka' }) @Min(.5) @Max(60) aSeconds: number;
+  @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
+  @IsNumber({}, { message: 'Detik relay B harus berupa angka' }) @Min(.5) @Max(60) bSeconds: number;
 }
 export class PlanDto {
-  @IsNumber() @Min(.01) @Max(1000000) liters: number;
+  @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
+  @IsNumber({}, { message: 'Jumlah air harus berupa angka' }) @Min(.01, { message: 'Jumlah air minimal 0,01 liter' }) @Max(1000000) liters: number;
 }
 export class MixDto extends PlanDto {
   @IsBoolean() newWater: boolean;

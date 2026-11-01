@@ -43,7 +43,8 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     const plan = service.plan(d, 10);
     assert.equal(plan.aSeconds, 4); assert.equal(plan.bSeconds, 4);
     assert.equal(service.plan(d, 20).aSeconds, 8);
-    assert.throws(() => service.plan(d, 1000));
+    assert.equal(service.plan(d, 1000).ready, false);
+    assert.ok(service.plan(d, 1000).issues.some(issue => issue.includes('60')));
     const input = { liters: 10, newWater: true, requestId: 'mix_test_0001', calibrationKey: plan.calibrationKey };
     await assert.rejects(service.start(device.id, { ...input, calibrationKey: 'old' }, owner.id));
     const started = await service.start(device.id, input, owner.id);

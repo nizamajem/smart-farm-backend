@@ -30,10 +30,18 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
   plan(device: Device, liters: number) {
     const r = device.nutrientRecipe;
     if (!r) throw new BadRequestException('Simpan kalibrasi detik per liter terlebih dahulu');
+    if (!Number.isFinite(liters) || liters < .01 || liters > 1000000) throw new BadRequestException('Jumlah air harus antara 0,01 dan 1.000.000 liter');
+    if (!Number.isFinite(r.liters) || r.liters <= 0 || ![r.aSeconds, r.bSeconds].every(n => Number.isFinite(n) && n >= .5 && n <= 60)) throw new BadRequestException('Kalibrasi tersimpan tidak valid. Buka Atur Kalibrasi dan simpan ulang.');
     const aSeconds = Math.round(liters / r.liters * r.aSeconds * 1000) / 1000;
     const bSeconds = Math.round(liters / r.liters * r.bSeconds * 1000) / 1000;
-    if (![aSeconds, bSeconds].every(n => Number.isFinite(n) && n >= .5 && n * 1000 <= MAX_MIX_ON_MS)) throw new BadRequestException('Durasi tiap relay harus 0,5–60 detik. Sesuaikan volume air.');
-    return { liters, aSeconds, bSeconds, calibrationKey: `${r.liters}:${r.aSeconds}:${r.bSeconds}`, ready: !!device.haRelays?.relay1 && !!device.haRelays?.relay2 };
+    const withinLimits = [aSeconds, bSeconds].every(n => Number.isFinite(n) && n >= .5 && n * 1000 <= MAX_MIX_ON_MS);
+    const minLiters = Math.max(.5 * r.liters / r.aSeconds, .5 * r.liters / r.bSeconds);
+    const maxLiters = Math.min(60 * r.liters / r.aSeconds, 60 * r.liters / r.bSeconds);
+    const mapped = !!device.haRelays?.relay1 && !!device.haRelays?.relay2;
+    const issues: string[] = [];
+    if (!withinLimits) issues.push(`Hasil hitung: A ${aSeconds} detik, B ${bSeconds} detik. Batas relay 0,5–60 detik. Volume untuk kalibrasi ini: ${Math.ceil(minLiters * 1000) / 1000}–${Math.floor(maxLiters * 1000) / 1000} liter.`);
+    if (!mapped) issues.push('Relay A/B belum dipetakan. Buka Pengaturan alat → Modul relay dari Home Assistant, pilih entity A dan B lalu simpan.');
+    return { liters, aSeconds, bSeconds, calibrationKey: `${r.liters}:${r.aSeconds}:${r.bSeconds}`, ready: withinLimits && mapped, issues, minLiters, maxLiters };
   }
   async start(id: number, dto: MixDto, userId: number) {
     if (this.jobs.has(id)) {
@@ -48,9 +56,10 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       if (!dto.newWater) throw new BadRequestException('Konfirmasi air belum diberi AB mix');
       const plan = this.plan(device, dto.liters);
       if (dto.calibrationKey !== plan.calibrationKey) throw new ConflictException('Kalibrasi berubah. Hitung ulang takaran.');
-      if (!plan.ready) throw new BadRequestException('Hubungkan relay A dan B ke Home Assistant dahulu');
+      if (!plan.ready) throw new BadRequestException(plan.issues.join(' '));
       const states = await this.relays.status(device);
-      if (states.slice(0, 2).some(s => s.state !== 'off') || states.some(s => s.entityId && s.state !== 'off')) throw new ConflictException('Relay yang terhubung harus berstatus Mati sebelum mulai');
+      const unavailable = states.filter(s => (s.relay <= 2 || s.entityId) && s.state !== 'off');
+      if (unavailable.length) throw new ConflictException(`Campuran belum dimulai. ${unavailable.map(s => `Relay ${s.relay}${s.entityId ? ` (${s.entityId})` : ''}: ${s.state === 'on' ? 'masih menyala' : 'status belum tersedia'}`).join('; ')}. Periksa entity dan pastikan relay Mati di Home Assistant.`);
       const mix: NonNullable<Device['lastMix']> = { requestId: dto.requestId, status: 'running', liters: dto.liters, aSeconds: plan.aSeconds, bSeconds: plan.bSeconds, startedAt: new Date().toISOString() };
       await this.devices.update(id, { lastMix: mix });
       const job = this.run(device, mix, token, userId);
