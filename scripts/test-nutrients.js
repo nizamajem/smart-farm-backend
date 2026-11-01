@@ -9,6 +9,25 @@ const { HaRelayService } = require('../dist/home-assistant/ha-relay.service');
 const { NutrientsService } = require('../dist/devices/nutrients.service');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
+test('main water liters, concentrate ml and pump seconds are independent units', () => {
+  const service = new NutrientsService(null, null, null);
+  const device = { nutrientRecipe: { version: 2, waterLiters: 1000, aMl: 10, bMl: 10 }, dosingPumps: { a: { seconds: 5, ml: 10 }, b: { seconds: 10, ml: 10 }, phUp: { seconds: 3, ml: 2 }, phDown: { seconds: 4, ml: 2 } }, haRelays: { relay1: 'switch.a', relay2: 'switch.b' } };
+  const plan = service.plan(device, 1000);
+  assert.equal(plan.aMl, 10); assert.equal(plan.bMl, 10);
+  assert.equal(plan.aSeconds, 5); assert.equal(plan.bSeconds, 10);
+  assert.equal(plan.ready, true);
+  const smaller = service.plan(device, 100);
+  assert.equal(smaller.aMl, 1); assert.equal(smaller.aSeconds, .5);
+  assert.equal(smaller.bMl, 1); assert.equal(smaller.bSeconds, 1);
+  const missing = service.plan({ ...device, dosingPumps: {} }, 1000);
+  assert.equal(missing.aMl, 10); assert.equal(missing.aSeconds, null); assert.equal(missing.ready, false);
+  const legacy = { ...device, nutrientRecipe: { liters: .1, aSeconds: 5, bSeconds: 5 } };
+  assert.equal(service.status(legacy).recipe, null);
+  assert.equal(service.status(legacy).legacyRecipe, true);
+  assert.throws(() => service.plan(legacy, 100));
+  assert.deepEqual(legacy.nutrientRecipe, { liters: .1, aSeconds: 5, bSeconds: 5 });
+});
+
 test('calibrated mixing runs exact A/B durations, rejects duplicates and can stop', async () => {
   const originalFetch = global.fetch;
   const env = { HA_BASE_URL: process.env.HA_BASE_URL, HA_TOKEN: process.env.HA_TOKEN };
@@ -38,7 +57,9 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     const device = await repo.save({ name: 'Tank', ownerId: owner.id, apiKey: 'mix', relayLabels: ['A', 'B', 'Up', 'Down'], haRelays: { relay1: 'switch.a', relay2: 'switch.b' } });
     relays = new HaRelayService(repo, { getBool: async () => true });
     service = new NutrientsService(repo, commands, relays);
-    await service.saveRecipe(device.id, { liters: 10, aSeconds: 4, bSeconds: 4 });
+    await service.savePump(device.id, 'a', { seconds: 4, ml: 10 });
+    await service.savePump(device.id, 'b', { seconds: 4, ml: 10 });
+    await service.saveRecipe(device.id, { waterLiters: 10, aMl: 10, bMl: 10 });
     const d = await repo.findOneByOrFail({ id: device.id });
     const plan = service.plan(d, 10);
     assert.equal(plan.aSeconds, 4); assert.equal(plan.bSeconds, 4);
@@ -51,7 +72,7 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     assert.equal(started.mix.status, 'running');
     assert.equal((await service.start(device.id, input, owner.id)).mix.requestId, input.requestId);
     await assert.rejects(service.start(device.id, { ...input, requestId: 'mix_test_0002' }, owner.id));
-    await assert.rejects(service.saveRecipe(device.id, { liters: 10, aSeconds: 5, bSeconds: 5 }));
+    await assert.rejects(service.saveRecipe(device.id, { waterLiters: 10, aMl: 20, bMl: 20 }));
     await assert.rejects(relays.saveMapping(device.id, { relay1: 'switch.a', relay2: 'switch.b' }));
     for (let i = 0; i < 150; i++) { if ((await repo.findOneByOrFail({ id: device.id })).lastMix.status !== 'running') break; await wait(100); }
     const completed = (await repo.findOneByOrFail({ id: device.id })).lastMix;
@@ -65,8 +86,9 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     const before = calls.length;
     await service.start(device.id, input, owner.id);
     assert.equal(calls.length, before, 'retry completed request must not dose again');
-    await service.saveRecipe(device.id, { liters: 10, aSeconds: .5, bSeconds: .5 });
-    const next = { ...input, calibrationKey: '10:0.5:0.5', requestId: 'mix_stop_0001' };
+    await service.savePump(device.id, 'a', { seconds: .5, ml: 10 });
+    await service.savePump(device.id, 'b', { seconds: .5, ml: 10 });
+    const next = { ...input, calibrationKey: service.plan(await repo.findOneByOrFail({ id: device.id }), 10).calibrationKey, requestId: 'mix_stop_0001' };
     await service.start(device.id, next, owner.id);
     await service.stop(device.id);
     assert.equal((await repo.findOneByOrFail({ id: device.id })).lastMix.status, 'stopped');

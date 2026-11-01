@@ -8,11 +8,17 @@ import { NutrientsService } from './nutrients.service';
 
 export class RecipeDto {
   @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
-  @IsNumber({}, { message: 'Liter acuan harus berupa angka' }) @Min(.01) @Max(1000000) liters: number;
+  @IsNumber({}, { message: 'Air utama harus berupa angka dalam liter' }) @Min(.01) @Max(1000000) waterLiters: number;
   @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
-  @IsNumber({}, { message: 'Detik relay A harus berupa angka' }) @Min(.5) @Max(60) aSeconds: number;
+  @IsNumber({}, { message: 'Larutan A harus berupa angka dalam ml' }) @Min(.001) @Max(1000000) aMl: number;
   @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
-  @IsNumber({}, { message: 'Detik relay B harus berupa angka' }) @Min(.5) @Max(60) bSeconds: number;
+  @IsNumber({}, { message: 'Larutan B harus berupa angka dalam ml' }) @Min(.001) @Max(1000000) bMl: number;
+}
+export class PumpCalibrationDto {
+  @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
+  @IsNumber() @Min(.5) @Max(60) seconds: number;
+  @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
+  @IsNumber() @Min(.001) @Max(1000000) ml: number;
 }
 export class PlanDto {
   @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
@@ -32,6 +38,8 @@ export class NutrientsController {
   async status(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) { return this.nutrients.status(await this.devices.getOwned(user, id)); }
   @Put('recipe')
   async recipe(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: RecipeDto) { await this.devices.getOwned(user, id); return this.nutrients.saveRecipe(id, dto); }
+  @Put('pumps/:channel')
+  async pump(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Param('channel') channel: string, @Body() dto: PumpCalibrationDto) { await this.devices.getOwned(user, id); return this.nutrients.savePump(id, channel, dto); }
   @Post('plan')
   async plan(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PlanDto) { return this.nutrients.plan(await this.devices.getOwned(user, id), dto.liters); }
   @Post('mix')

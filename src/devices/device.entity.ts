@@ -49,10 +49,13 @@ export class Device {
   haMcbSensors: { power?: string; energy?: string } | null;
 
   @Column('simple-json', { nullable: true })
-  nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | null;
+  nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | { version: 2; waterLiters: number; aMl: number; bMl: number } | null;
 
   @Column('simple-json', { nullable: true })
-  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; startedAt: string; finishedAt?: string; error?: string } | null;
+  dosingPumps: Partial<Record<'a' | 'b' | 'phUp' | 'phDown', { seconds: number; ml: number }>> | null;
+
+  @Column('simple-json', { nullable: true })
+  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; aMl?: number; bMl?: number; startedAt: string; finishedAt?: string; error?: string } | null;
 
   @Column()
   ownerId: number;

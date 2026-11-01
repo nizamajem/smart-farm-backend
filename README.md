@@ -292,12 +292,23 @@ pemakaian hari ini. API pemetaan sensor: admin
 
 ## Campur nutrisi berdasarkan liter
 
-Kalibrasi resep tersimpan di server: liter air acuan, detik relay A, dan
-detik relay B. Ini berbeda dari catatan uji volume pompa dalam ml. Jangan
-mengonversi catatan ml lama menjadi liter air secara otomatis.
-Contoh: resep teruji 10 liter, A 4 detik, B 4 detik. Input 20 liter
-menghasilkan A 8 detik dan B 8 detik. Kalibrasi ini dipakai bersama oleh
-web dan aplikasi; form utama hanya meminta liter air tandon.
+Ada dua pengaturan terpisah, tersimpan di server dan dipakai bersama oleh
+web serta aplikasi:
+
+- **Kalibrasi pompa:** detik relay menyala dan ml larutan yang benar-benar
+  tertampung. Terpisah untuk A, B, pH Up, serta pH Down.
+- **Resep nutrisi:** liter air tandon utama, kebutuhan larutan A dalam ml,
+  dan kebutuhan larutan B dalam ml. Ini bukan volume wadah stok larutan.
+
+Contoh hitungan saja: resep 1.000 liter air, A 10 ml, B 10 ml. Input
+100 liter menghasilkan A 1 ml dan B 1 ml. Jika kalibrasi A 10 ml dalam
+5 detik, kebutuhan A 10 ml berarti relay A 5 detik. Dosis resep mengikuti
+produk dan tanaman pengguna; contoh tidak disimpan sebagai dosis bawaan.
+pH Up/Down tidak ikut ditambahkan dalam proses A/B otomatis.
+
+Versi resep baru ditandai `version: 2`. Resep lama detik-per-liter tetap
+tersimpan sampai pengguna menyimpan resep baru, tetapi tidak dipakai atau
+dikonversi secara otomatis. Kalibrasi pompa dalam ml harus diisi terpisah.
 
 **Hitung Takaran** tidak mengirim ON/OFF. **Campur Nutrisi** memulai A,
 menunggu durasinya, mematikan A, lalu melakukan hal yang sama untuk B.
@@ -323,7 +334,8 @@ perangkat yang sudah terpasang. Jangan memakai batas ini sebagai pengganti
 kalibrasi resep atau sebagai jaminan dosis tepat saat jaringan gagal.
 
 API pemilik/admin: `GET /api/devices/:id/nutrients`,
-`PUT .../nutrients/recipe` (`liters`, `aSeconds`, `bSeconds`),
+`PUT .../nutrients/recipe` (`waterLiters`, `aMl`, `bMl`),
+`PUT .../nutrients/pumps/:channel` (`seconds`, `ml`, kanal `a`, `b`, `phUp`, `phDown`),
 `POST .../nutrients/plan` (`liters`), `POST .../nutrients/mix`
 (`liters`, `newWater: true`, `calibrationKey` dari plan, `requestId`),
 dan `POST .../nutrients/stop`. Migration berjalan saat backend diperbarui.
