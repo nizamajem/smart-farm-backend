@@ -40,6 +40,8 @@ export class NutrientsController {
   async recipe(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: RecipeDto) { await this.devices.getOwned(user, id); return this.nutrients.saveRecipe(id, dto); }
   @Put('pumps/:channel')
   async pump(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Param('channel') channel: string, @Body() dto: PumpCalibrationDto) { await this.devices.getOwned(user, id); return this.nutrients.savePump(id, channel, dto); }
+  @Post('pumps/:channel/import')
+  async importPump(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Param('channel') channel: string, @Body() dto: PumpCalibrationDto) { await this.devices.getOwned(user, id); return this.nutrients.savePump(id, channel, dto, true); }
   @Post('plan')
   async plan(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PlanDto) { return this.nutrients.plan(await this.devices.getOwned(user, id), dto.liters); }
   @Post('mix')

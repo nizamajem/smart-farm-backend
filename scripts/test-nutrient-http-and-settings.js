@@ -73,6 +73,14 @@ test('real HTTP validation explains errors; sensor saves preserve pH and dosing 
     const pumpStatus = await phPump.json();
     assert.deepEqual(pumpStatus.pumps.phUp, { seconds: 5, ml: 10 });
     assert.equal(pumpStatus.pumps.a.ml, 10);
+    const importCalibration = async (channel, calibration) => fetch(`${base}/api/devices/${d.id}/nutrients/pumps/${channel}/import`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-only' }, body: JSON.stringify(calibration) });
+    const existingA = await importCalibration('a', { seconds: 4, ml: 1 });
+    assert.equal(existingA.status, 201);
+    assert.deepEqual((await existingA.json()).pumps.a, { seconds: 4, ml: 10 }, 'legacy import must not overwrite existing server calibration');
+    const missingDown = await importCalibration('phDown', { seconds: 5, ml: 1 });
+    assert.equal(missingDown.status, 201);
+    assert.deepEqual((await missingDown.json()).pumps.phDown, { seconds: 5, ml: 1 });
+    assert.equal((await repo.findOneByOrFail({ id: d.id })).haEntities.ph, 'sensor.my_ph');
     const request = async (path, body) => fetch(`${base}/api/devices/${d.id}/nutrients/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-only' }, body: JSON.stringify(body) });
     const valid = await request('plan', { liters: 10 });
     assert.equal(valid.status, 201);

@@ -348,3 +348,17 @@ perangkat, sehingga tidak menimpa kalibrasi campuran yang tersimpan bersamaan.
 Error endpoint nutrients dicatat dengan `reason` di log HTTP, tanpa menyalin
 body request atau kredensial. Tes HTTP dan regresi pemetaan pH:
 `node --test scripts/test-nutrient-http-and-settings.js` setelah build.
+
+### Catatan kalibrasi lama
+
+Tab Pompa dan Campur Nutrisi kini memakai `dosingPumps` di server yang sama.
+Saat panel dibuka dari browser yang menyimpan catatan uji lama, frontend
+menyalin pasangan `seconds` dan `volume` (ml) ke kanal yang masih kosong
+melalui `POST .../nutrients/pumps/:channel/import`. Endpoint ini memeriksa
+ulang isi server di dalam kunci panel; kalibrasi yang sudah ada tidak ditimpa.
+Catatan lokal tidak dihapus. Catatan pH dan pemetaan entity sensor tidak
+diubah. Nilai lama yang tidak valid tidak dikonversi atau ditebak.
+
+Aplikasi juga mengimpor catatan lokal versi sebelumnya untuk akun/perangkat
+yang sama ke endpoint tersebut. Kalibrasi baru selalu disimpan ke server.
+Backend harus diperbarui bersama web/aplikasi agar endpoint impor tersedia.

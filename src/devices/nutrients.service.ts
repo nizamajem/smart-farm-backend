@@ -27,12 +27,13 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     try { await this.devices.update(id, { nutrientRecipe: { ...recipe, version: 2 } }); return this.status(await this.devices.findOneByOrFail({ id })); }
     finally { this.relays.releaseMix(id, token); }
   }
-  async savePump(id: number, channel: string, calibration: PumpCalibrationDto) {
+  async savePump(id: number, channel: string, calibration: PumpCalibrationDto, onlyIfMissing = false) {
     if (!['a', 'b', 'phUp', 'phDown'].includes(channel)) throw new BadRequestException('Kanal pompa tidak dikenal');
     const token = this.relays.reserveMix(id);
     try {
       const device = await this.devices.findOneByOrFail({ id });
-      await this.devices.update(id, { dosingPumps: { ...device.dosingPumps, [channel]: calibration } });
+      if (onlyIfMissing && device.dosingPumps?.[channel as keyof NonNullable<Device['dosingPumps']>]) return this.status(device);
+      await this.devices.update(id, { dosingPumps: { ...device.dosingPumps, [channel]: { seconds: calibration.seconds, ml: calibration.ml } } });
       return this.status(await this.devices.findOneByOrFail({ id }));
     } finally { this.relays.releaseMix(id, token); }
   }
