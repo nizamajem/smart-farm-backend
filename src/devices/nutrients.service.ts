@@ -50,7 +50,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       if (dto.calibrationKey !== plan.calibrationKey) throw new ConflictException('Kalibrasi berubah. Hitung ulang takaran.');
       if (!plan.ready) throw new BadRequestException('Hubungkan relay A dan B ke Home Assistant dahulu');
       const states = await this.relays.status(device);
-      if (states.slice(0, 2).some(s => s.state !== 'off')) throw new ConflictException('Relay A dan B harus berstatus Mati sebelum mulai');
+      if (states.slice(0, 2).some(s => s.state !== 'off') || states.some(s => s.entityId && s.state !== 'off')) throw new ConflictException('Relay yang terhubung harus berstatus Mati sebelum mulai');
       const mix: NonNullable<Device['lastMix']> = { requestId: dto.requestId, status: 'running', liters: dto.liters, aSeconds: plan.aSeconds, bSeconds: plan.bSeconds, startedAt: new Date().toISOString() };
       await this.devices.update(id, { lastMix: mix });
       const job = this.run(device, mix, token, userId);

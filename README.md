@@ -281,3 +281,49 @@ API: `GET /api/home-assistant/devices/:id/mcb`, admin
 dan `POST /api/home-assistant/devices/:id/mcb/command` (`action: ON | OFF`).
 Token HA tetap di backend. Tes tanpa perangkat fisik:
 `npm run build` lalu `node --test scripts/test-smart-mcb.js`.
+
+Kartu **Listrik Panel** menampilkan daya sesaat (W), energi total meter
+(kWh), dan tombol ON/OFF. Admin memilih sensor daya W/kW serta energi
+Wh/kWh milik MCB yang sama melalui **Hubungkan Smart MCB**. Tidak ada
+tebakan nama sensor dari `switch.smartmcb002`; switch hanya memberi ON/OFF.
+Nilai tidak tersedia ditampilkan kosong, bukan nol. Energi total bukan
+pemakaian hari ini. API pemetaan sensor: admin
+`PUT /api/home-assistant/devices/:id/mcb/sensors` dengan `power` dan `energy`.
+
+## Campur nutrisi berdasarkan liter
+
+Kalibrasi resep tersimpan di server: liter air acuan, detik relay A, dan
+detik relay B. Ini berbeda dari catatan uji volume pompa dalam ml. Jangan
+mengonversi catatan ml lama menjadi liter air secara otomatis.
+Contoh: resep teruji 10 liter, A 4 detik, B 4 detik. Input 20 liter
+menghasilkan A 8 detik dan B 8 detik. Kalibrasi ini dipakai bersama oleh
+web dan aplikasi; form utama hanya meminta liter air tandon.
+
+**Hitung Takaran** tidak mengirim ON/OFF. **Campur Nutrisi** memulai A,
+menunggu durasinya, mematikan A, lalu melakukan hal yang sama untuk B.
+Sirkulasi air harus sudah aktif. Kedua relay harus dipetakan melalui HA
+dan semua relay yang dipetakan harus OFF sebelum mulai. Batas per relay
+0,5–60 detik, ditolak bila di luar batas, tidak dipotong diam-diam ke
+3 detik. Endpoint uji relay dan firmware PlatformIO tetap memiliki batas
+uji 3 detik. Gunakan ESPHome/HA untuk endpoint campuran ini.
+
+Server mengunci panel selama proses, menyimpan target durasi dan status,
+serta menolak start ganda. `requestId` yang sama dengan proses terakhir
+tidak dijalankan ulang. **Hentikan Campuran** membatalkan sisa proses dan
+mengirim OFF ke A/B. Kegagalan ON/OFF dicatat gagal; proses gagal tidak
+dilanjutkan otomatis. Setelah restart server, proses tertunda ditandai
+gagal dan server mencoba mematikan A/B. Status selesai menandakan urutan
+perintah selesai, bukan volume cairan yang diukur flow meter.
+
+Timer normal berjalan di server. Konfigurasi ESPHome `dosing02.yaml`
+menambahkan watchdog 60 detik di perangkat untuk A/B dan interlock A/B;
+unggah firmware itu agar watchdog aktif. Konfigurasi saja tidak mengubah
+perangkat yang sudah terpasang. Jangan memakai batas ini sebagai pengganti
+kalibrasi resep atau sebagai jaminan dosis tepat saat jaringan gagal.
+
+API pemilik/admin: `GET /api/devices/:id/nutrients`,
+`PUT .../nutrients/recipe` (`liters`, `aSeconds`, `bSeconds`),
+`POST .../nutrients/plan` (`liters`), `POST .../nutrients/mix`
+(`liters`, `newWater: true`, `calibrationKey` dari plan, `requestId`),
+dan `POST .../nutrients/stop`. Migration berjalan saat backend diperbarui.
+Tes tanpa perangkat: `node --test scripts/test-nutrients.js` setelah build.

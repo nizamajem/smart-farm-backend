@@ -77,6 +77,14 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     assert.ok([...states.values()].every(s => s === 'off'));
     const savedCommands = await commands.find();
     assert.ok(savedCommands.some(c => c.durationMs === 4000 && c.status === 'done'));
+    await service.stop(device.id);
+    const beforeRestart = calls.filter(c => c.on).length;
+    const restartMix = { ...completed, status: 'running', requestId: 'interrupted_0001' };
+    await repo.update(device.id, { lastMix: restartMix });
+    await service.onModuleInit();
+    const recovered = await repo.findOneByOrFail({ id: device.id });
+    assert.equal(recovered.lastMix.status, 'failed');
+    assert.equal(calls.filter(c => c.on).length, beforeRestart, 'restart must never resume dosing');
   } finally {
     if (service) await service.onModuleDestroy();
     if (relays) await relays.onModuleDestroy();

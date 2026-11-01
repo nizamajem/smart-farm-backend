@@ -167,6 +167,8 @@ export class HaRelayService implements OnModuleDestroy {
       if (!state || !units.includes(state.attributes.unit_of_measurement || '')) throw new BadRequestException(`Pilih sensor ${key === 'power' ? 'daya W/kW' : 'energi Wh/kWh'} yang sesuai`);
     }
     if (sensors.power && sensors.power === sensors.energy) throw new BadRequestException('Sensor daya dan energi harus berbeda');
+    const selected = Object.values(sensors).filter(Boolean);
+    if ((await this.devices.find()).some(d => d.id !== id && Object.values(d.haMcbSensors || {}).some(entity => selected.includes(entity)))) throw new BadRequestException('Sensor listrik sudah dipakai panel lain');
     await this.devices.update(id, { haMcbSensors: { power: sensors.power || undefined, energy: sensors.energy || undefined } });
     return this.devices.findOneByOrFail({ id });
   }
