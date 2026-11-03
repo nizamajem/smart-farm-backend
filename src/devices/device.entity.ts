@@ -55,7 +55,7 @@ export class Device {
   dosingPumps: Partial<Record<'a' | 'b' | 'phUp' | 'phDown', { seconds: number; ml: number }>> | null;
 
   @Column('simple-json', { nullable: true })
-  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; aMl?: number; bMl?: number; startedAt: string; finishedAt?: string; error?: string } | null;
+  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; aMl?: number; bMl?: number; phase?: 'a' | 'b' | 'finishing'; phaseStartedAt?: string; startedAt: string; finishedAt?: string; error?: string } | null;
 
   @Column('simple-json', { nullable: true })
   lastPhDose: { requestId: string; channel: 'phUp' | 'phDown'; ml: number; seconds: number; status: string; startedAt: string; finishedAt?: string; error?: string } | null;

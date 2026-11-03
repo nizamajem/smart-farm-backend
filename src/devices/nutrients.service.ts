@@ -157,6 +157,9 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     try {
       for (const [relay, seconds] of [[1, mix.aSeconds], [2, mix.bSeconds]]) {
         if (this.relays.mixCancelled(device.id, token)) { status = 'stopped'; break; }
+        mix.phase = relay === 1 ? 'a' : 'b';
+        mix.phaseStartedAt = new Date().toISOString();
+        await this.devices.update(device.id, { lastMix: { ...mix } });
         const command = await this.commands.save(this.commands.create({ deviceId: device.id, relay, action: 'ON', durationMs: Math.round(seconds * 1000), transport: 'ha', status: 'sent', requestedById: userId }));
         try { await this.relays.execute(command, device.haRelays![relay === 1 ? 'relay1' : 'relay2']!, token); command.status = 'done'; command.ackAt = new Date(); }
         catch (e) { command.status = 'failed'; throw e; }
@@ -165,6 +168,8 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       if (this.relays.mixCancelled(device.id, token)) status = 'stopped';
     } catch (e) { status = this.relays.mixCancelled(device.id, token) ? 'stopped' : 'failed'; error = (e as Error).message; }
     finally {
+      mix.phase = 'finishing';
+      await this.devices.update(device.id, { lastMix: { ...mix } });
       try { await this.relays.cancelMix(device); } catch { status = 'failed'; error = 'Konfirmasi relay OFF gagal. Periksa alat.'; }
       await this.devices.update(device.id, { lastMix: { ...mix, status, ...(error ? { error } : {}), finishedAt: new Date().toISOString() } });
     }
