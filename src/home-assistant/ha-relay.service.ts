@@ -11,6 +11,7 @@ import type { HaState } from './home-assistant.service';
 const NAMES = ['Larutan A', 'Larutan B', 'pH Up', 'pH Down'];
 const validEntity = (id: string) => /^(switch|light)\.[a-z0-9_]+$/.test(id);
 export const MAX_MIX_ON_MS = 60_000;
+export const MAX_PH_ON_MS = 3_600_000;
 
 /** Direct HA commands have their own route; they never enter the MQTT/HTTP queue. */
 @Injectable()
@@ -19,21 +20,22 @@ export class HaRelayService implements OnModuleDestroy {
   private saving = false;
   private stopping = false;
   private readonly mcbBusy = new Set<number>();
-  private readonly mixes = new Map<number, { token: symbol; cancelled: boolean }>();
+  private readonly mixes = new Map<number, { token: symbol; cancelled: boolean; kind: 'mix' | 'ph' }>();
 
-  reserveMix(id: number) {
+  reserveMix(id: number, kind: 'mix' | 'ph' = 'mix') {
     if (this.saving || this.stopping || this.mixes.has(id)) throw new ConflictException('Campuran sedang berjalan');
     const token = Symbol('mix');
-    this.mixes.set(id, { token, cancelled: false });
+    this.mixes.set(id, { token, cancelled: false, kind });
     return token;
   }
   mixCancelled(id: number, token: symbol) { return this.mixes.get(id)?.token !== token || !!this.mixes.get(id)?.cancelled; }
   releaseMix(id: number, token: symbol) { if (this.mixes.get(id)?.token === token) this.mixes.delete(id); }
-  async cancelMix(device: Device) {
+  async cancelMix(device: Device, kind?: 'mix' | 'ph') {
     const mix = this.mixes.get(device.id);
     if (mix) mix.cancelled = true;
     for (const id of Object.values(device.haRelays || {})) this.active.get(id)?.cancel();
-    await Promise.all([device.haRelays?.relay1, device.haRelays?.relay2].filter((id): id is string => !!id).map(id => this.turnOff(id)));
+    const keys = (kind ?? mix?.kind) === 'ph' ? ['relay3', 'relay4'] as const : ['relay1', 'relay2'] as const;
+    await Promise.all(keys.map(key => device.haRelays?.[key]).filter((id): id is string => !!id).map(id => this.turnOff(id)));
   }
 
   constructor(
@@ -237,7 +239,7 @@ export class HaRelayService implements OnModuleDestroy {
       if (wasCancelled) return;
       attemptedOn = true;
       await this.set(entityId, true);
-      const remaining = Math.min(command.durationMs, mixToken ? MAX_MIX_ON_MS : MAX_ON_MS);
+      const remaining = Math.min(command.durationMs, mixToken ? (mix?.kind === 'ph' ? MAX_PH_ON_MS : MAX_MIX_ON_MS) : MAX_ON_MS);
       await Promise.race([cancelled, new Promise<void>((resolve) => { timer = setTimeout(resolve, remaining); })]);
     } finally {
       clearTimeout(timer);

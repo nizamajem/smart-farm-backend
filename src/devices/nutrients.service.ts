@@ -3,16 +3,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Device } from './device.entity';
 import { RelayCommand } from './relay-command.entity';
-import { HaRelayService, MAX_MIX_ON_MS } from '../home-assistant/ha-relay.service';
-import type { MixDto, RecipeDto, PumpCalibrationDto } from './nutrients.controller';
+import { HaRelayService, MAX_MIX_ON_MS, MAX_PH_ON_MS } from '../home-assistant/ha-relay.service';
+import type { MixDto, RecipeDto, PumpCalibrationDto, PhDoseDto } from './nutrients.controller';
 
 @Injectable()
 export class NutrientsService implements OnModuleInit, OnModuleDestroy {
   private readonly jobs = new Map<number, Promise<void>>();
+  private readonly phJobs = new Map<number, Promise<void>>();
   constructor(@InjectRepository(Device) private readonly devices: Repository<Device>, @InjectRepository(RelayCommand) private readonly commands: Repository<RelayCommand>, private readonly relays: HaRelayService) {}
 
   async onModuleInit() {
     for (const device of await this.devices.find()) {
+      if (device.lastPhDose?.status === 'running') {
+        let error = 'Server dimulai ulang; penambahan pH tidak dilanjutkan otomatis.';
+        try { await this.relays.cancelMix(device, 'ph'); } catch { error += ' Konfirmasi OFF pH gagal. Periksa alat.'; }
+        await this.devices.update(device.id, { lastPhDose: { ...device.lastPhDose, status: 'failed', finishedAt: new Date().toISOString(), error } });
+      }
       if (device.lastMix?.status === 'running') {
         let error = 'Server dimulai ulang; campuran tidak dilanjutkan otomatis.';
         try { await this.relays.cancelMix(device); } catch { error += ' Periksa relay A/B: konfirmasi OFF gagal.'; }
@@ -20,7 +26,68 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       }
     }
   }
-  status(device: Device) { return { recipe: device.nutrientRecipe && 'version' in device.nutrientRecipe && device.nutrientRecipe.version === 2 ? device.nutrientRecipe : null, legacyRecipe: !!device.nutrientRecipe && !('version' in device.nutrientRecipe), pumps: device.dosingPumps || {}, mix: device.lastMix }; }
+  status(device: Device) { return { recipe: device.nutrientRecipe && 'version' in device.nutrientRecipe && device.nutrientRecipe.version === 2 ? device.nutrientRecipe : null, legacyRecipe: !!device.nutrientRecipe && !('version' in device.nutrientRecipe), pumps: device.dosingPumps || {}, mix: device.lastMix, phDose: device.lastPhDose }; }
+
+  phPlan(device: Device, channel: 'phUp' | 'phDown', ml: number) {
+    if (!['phUp', 'phDown'].includes(channel) || !Number.isFinite(ml) || ml < .001 || ml > 1000000) throw new BadRequestException('Pilih pH Up atau pH Down dan isi jumlah ml yang valid');
+    const pump = device.dosingPumps?.[channel];
+    const valid = pump && Number.isFinite(pump.seconds) && pump.seconds >= .5 && pump.seconds <= 86400 && Number.isFinite(pump.ml) && pump.ml >= .001 && pump.ml <= 1000000;
+    const seconds = valid ? Math.round(ml / pump.ml * pump.seconds * 1000) / 1000 : null;
+    const issues: string[] = [];
+    if (seconds == null) issues.push('Kalibrasi pompa terlebih dahulu: isi lama uji dan ml yang terkumpul.');
+    if (seconds != null && (seconds < .5 || seconds * 1000 > MAX_PH_ON_MS || !Number.isFinite(seconds))) issues.push('Durasi penambahan harus 0,5 detik sampai 60 menit. Sesuaikan jumlah ml.');
+    if (!device.haRelays?.[channel === 'phUp' ? 'relay3' : 'relay4']) issues.push('Hubungkan relay pH yang dipilih di Pengaturan alat.');
+    return { channel, ml, seconds, calibrationKey: JSON.stringify({ channel, pump }), ready: !issues.length, issues };
+  }
+
+  async startPh(id: number, dto: PhDoseDto, userId: number) {
+    if (this.phJobs.has(id)) {
+      const device = await this.devices.findOneByOrFail({ id });
+      if (device.lastPhDose?.requestId === dto.requestId) return this.status(device);
+      throw new ConflictException('Penambahan pH sedang berjalan');
+    }
+    const token = this.relays.reserveMix(id, 'ph');
+    try {
+      const device = await this.devices.findOneByOrFail({ id });
+      if (device.lastPhDose?.requestId === dto.requestId) { this.relays.releaseMix(id, token); return this.status(device); }
+      const plan = this.phPlan(device, dto.channel, dto.ml);
+      if (dto.calibrationKey !== plan.calibrationKey) throw new ConflictException('Kalibrasi berubah. Hitung ulang dosis pH.');
+      if (!plan.ready) throw new BadRequestException(plan.issues.join(' '));
+      const states = await this.relays.status(device);
+      if (states.some(state => state.entityId && state.state !== 'off')) throw new ConflictException('Pastikan semua relay yang terhubung berstatus Mati sebelum menambahkan pH.');
+      const dose: NonNullable<Device['lastPhDose']> = { requestId: dto.requestId, channel: dto.channel, ml: dto.ml, seconds: plan.seconds!, status: 'running', startedAt: new Date().toISOString() };
+      await this.devices.update(id, { lastPhDose: dose });
+      const job = this.runPh(device, dose, token, userId);
+      this.phJobs.set(id, job);
+      void job.finally(() => { this.phJobs.delete(id); this.relays.releaseMix(id, token); }).catch(() => {});
+      return { ...this.status(device), phDose: dose };
+    } catch (e) { this.relays.releaseMix(id, token); throw e; }
+  }
+
+  private async runPh(device: Device, dose: NonNullable<Device['lastPhDose']>, token: symbol, userId: number) {
+    let status = 'completed', error: string | undefined;
+    let command: RelayCommand | undefined;
+    try {
+      if (!this.relays.mixCancelled(device.id, token)) {
+        const relay = dose.channel === 'phUp' ? 3 : 4;
+        command = await this.commands.save(this.commands.create({ deviceId: device.id, relay, action: 'ON', durationMs: Math.round(dose.seconds * 1000), transport: 'ha', status: 'sent', requestedById: userId }));
+        await this.relays.execute(command, device.haRelays![relay === 3 ? 'relay3' : 'relay4']!, token);
+        command.status = 'done'; command.ackAt = new Date();
+      }
+      if (this.relays.mixCancelled(device.id, token)) status = 'stopped';
+    } catch (e) { status = this.relays.mixCancelled(device.id, token) ? 'stopped' : 'failed'; error = (e as Error).message; if (command) command.status = 'failed'; }
+    finally {
+      try { await this.relays.cancelMix(device, 'ph'); } catch { status = 'failed'; error = 'Konfirmasi relay pH OFF gagal. Periksa alat.'; }
+      try { if (command) await this.commands.save(command); }
+      finally { await this.devices.update(device.id, { lastPhDose: { ...dose, status, ...(error ? { error } : {}), finishedAt: new Date().toISOString() } }); }
+    }
+  }
+
+  async stopPh(id: number) {
+    const device = await this.devices.findOneByOrFail({ id });
+    if (this.phJobs.has(id)) { await this.relays.cancelMix(device, 'ph'); await this.phJobs.get(id); }
+    return this.status(await this.devices.findOneByOrFail({ id }));
+  }
   async saveRecipe(id: number, recipe: RecipeDto) {
     if (this.jobs.has(id)) throw new ConflictException('Tunggu campuran selesai');
     const token = this.relays.reserveMix(id);
@@ -45,7 +112,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     const aMl = liters / r.waterLiters * r.aMl;
     const bMl = liters / r.waterLiters * r.bMl;
     const pumps = device.dosingPumps || {};
-    const duration = (pump: typeof pumps.a, ml: number) => pump && Number.isFinite(pump.ml) && pump.ml > 0 && Number.isFinite(pump.seconds) && pump.seconds >= .5 && pump.seconds <= 60 ? Math.round(ml / pump.ml * pump.seconds * 1000) / 1000 : null;
+    const duration = (pump: typeof pumps.a, ml: number) => pump && Number.isFinite(pump.ml) && pump.ml > 0 && Number.isFinite(pump.seconds) && pump.seconds >= .5 && pump.seconds <= 86400 ? Math.round(ml / pump.ml * pump.seconds * 1000) / 1000 : null;
     const aSeconds = duration(pumps.a, aMl), bSeconds = duration(pumps.b, bMl);
     const issues: string[] = [];
     if (aSeconds == null) issues.push('Kalibrasi pompa A: isi ml yang keluar dan lama relay menyala.');
@@ -107,5 +174,5 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     if (this.jobs.has(id)) { await this.relays.cancelMix(device); await this.jobs.get(id); }
     return this.status(await this.devices.findOneByOrFail({ id }));
   }
-  async onModuleDestroy() { await Promise.allSettled([...this.jobs.keys()].map(id => this.stop(id))); }
+  async onModuleDestroy() { await Promise.allSettled([...this.jobs.keys()].map(id => this.stop(id)).concat([...this.phJobs.keys()].map(id => this.stopPh(id)))); }
 }
