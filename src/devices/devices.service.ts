@@ -77,6 +77,16 @@ export class DevicesService {
     return rows.reverse();
   }
 
+  async allReadingsFor(user: JwtUser, query: ReadingsQueryDto = {}) {
+    if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw new BadRequestException('Tanggal akhir harus setelah tanggal awal');
+    const builder = this.readings.createQueryBuilder('reading').innerJoinAndSelect('reading.device', 'device');
+    if (user.role !== 'admin') builder.where('device.ownerId = :owner', { owner: user.sub });
+    if (query.from) builder.andWhere('reading.createdAt >= :from', { from: new Date(query.from) });
+    if (query.to) builder.andWhere('reading.createdAt < :to', { to: new Date(query.to) });
+    const rows = await builder.orderBy('reading.createdAt', 'DESC').addOrderBy('reading.id', 'DESC').skip(query.offset ?? 0).take(query.limit ?? 200).getMany();
+    return rows.reverse().map(({ device, ...reading }) => ({ ...reading, deviceName: device.name }));
+  }
+
   async commandsFor(user: JwtUser, id: number) {
     await this.getOwned(user, id);
     return this.commands.find({ where: { deviceId: id }, order: { createdAt: 'DESC' }, take: 20 });

@@ -20,10 +20,11 @@ export class HaRelayService implements OnModuleDestroy {
   private saving = false;
   private stopping = false;
   private readonly mcbBusy = new Set<number>();
+  private readonly manualBusy = new Set<number>();
   private readonly mixes = new Map<number, { token: symbol; cancelled: boolean; kind: 'mix' | 'ph' }>();
 
   reserveMix(id: number, kind: 'mix' | 'ph' = 'mix') {
-    if (this.saving || this.stopping || this.mixes.has(id)) throw new ConflictException('Campuran sedang berjalan');
+    if (this.saving || this.stopping || this.mixes.has(id) || this.manualBusy.has(id)) throw new ConflictException('Kontrol panel sedang digunakan');
     const token = Symbol('mix');
     this.mixes.set(id, { token, cancelled: false, kind });
     return token;
@@ -70,7 +71,7 @@ export class HaRelayService implements OnModuleDestroy {
 
   async saveMapping(deviceId: number, map: HaRelayMap) {
     if (this.mixes.has(deviceId)) throw new ConflictException('Hentikan campuran sebelum mengubah relay');
-    if (this.saving) throw new ConflictException('Pemetaan sedang disimpan, coba lagi');
+    if (this.saving || this.manualBusy.size) throw new ConflictException('Kontrol relay sedang digunakan, coba lagi');
     this.saving = true;
     try {
       const device = await this.devices.findOneBy({ id: deviceId });
@@ -86,6 +87,10 @@ export class HaRelayService implements OnModuleDestroy {
       if (new Set(ids).size !== ids.length) throw new BadRequestException('Satu entity hanya boleh dipakai oleh satu kanal');
       const previous = Object.values(device.haRelays || {});
       if ([...previous, ...ids].some((id) => this.active.has(id))) throw new ConflictException('Tunggu uji relay selesai sebelum mengubah pemetaan');
+      if (previous.length) {
+        const states = await this.choices();
+        if (states.some(state => previous.includes(state.entity_id) && state.state === 'on')) throw new ConflictException('Matikan relay sebelum mengubah pemetaan');
+      }
       if (ids.length) {
         const states = await this.choices();
         if (ids.some((id) => !states.some((s) => s.entity_id === id))) throw new BadRequestException('Entity relay tidak ditemukan di Home Assistant. Muat ulang daftar entity.');
@@ -185,6 +190,27 @@ export class HaRelayService implements OnModuleDestroy {
       await this.set(device.haMcbEntity, action === 'ON');
       return this.mcbStatus(device);
     } finally { this.mcbBusy.delete(deviceId); }
+  }
+
+  /** Persistent manual switches are separate from calibrated timed dosing. */
+  async manualSwitch(deviceId: number, relay: number, action: 'ON' | 'OFF') {
+    if (![1, 2, 3, 4].includes(relay) || !['ON', 'OFF'].includes(action)) throw new BadRequestException('Relay atau aksi tidak valid');
+    if (this.manualBusy.has(deviceId) || this.saving || this.stopping) throw new ConflictException('Kontrol panel sedang digunakan');
+    if (action === 'ON' && this.mixes.has(deviceId)) throw new ConflictException('Tunggu dosing selesai');
+    this.manualBusy.add(deviceId);
+    try {
+      const device = await this.devices.findOneByOrFail({ id: deviceId });
+      const entity = device.haRelays?.[RELAY_KEYS[relay - 1]];
+      if (!entity || !validEntity(entity)) throw new BadRequestException('Relay belum terhubung ke Home Assistant');
+      if (action === 'ON') {
+        if (!(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Integrasi Home Assistant sedang dimatikan');
+        if (Object.values(device.haRelays || {}).some(id => this.active.has(id)) || this.mixes.has(deviceId)) throw new ConflictException('Tunggu dosing selesai');
+        await this.set(entity, true);
+      } else {
+        await this.execute({ deviceId, relay, action: 'OFF' } as RelayCommand, entity);
+      }
+      return this.status(device);
+    } finally { this.manualBusy.delete(deviceId); }
   }
 
   private async set(entityId: string, on: boolean) {

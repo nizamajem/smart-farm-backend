@@ -209,7 +209,14 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
           missing.push(entityId);
           continue;
         }
-        const v = toNumber(s.state);
+        let v = toNumber(s.state);
+        if ((metric === 'flowIn' || metric === 'flowOut') && v != null) {
+          const unit = String(s.attributes?.unit_of_measurement || '').toLowerCase().replace(/\s/g, '');
+          if (unit === 'l/h') v /= 60;
+          else if (unit === 'm³/h' || unit === 'm3/h') v *= 1000 / 60;
+          else if (unit !== 'l/min') v = null;
+          if (v != null && v < 0) v = null;
+        }
         if (v != null) values[metric] = v;
         latest = Math.max(latest, Date.parse(s.last_reported ?? s.last_updated) || 0);
         raw[entityId] = { state: s.state, unit: s.attributes?.unit_of_measurement, last_updated: s.last_updated };

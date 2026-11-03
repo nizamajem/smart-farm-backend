@@ -53,6 +53,11 @@ export class SensorReading {
   @Column('real', { nullable: true })
   conductivityFactor: number | null;
 
+  @Column('real', { nullable: true })
+  flowIn: number | null;
+  @Column('real', { nullable: true })
+  flowOut: number | null;
+
   /** Jalur masuk data: http (ESP32 REST), mqtt, atau ha (Home Assistant) */
   @Column({ type: 'varchar', default: 'http' })
   source: ReadingSource;

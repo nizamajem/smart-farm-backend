@@ -20,6 +20,11 @@ export class DevicesController {
     return this.devices.create(user, dto, client);
   }
 
+  @Get('readings/history')
+  allReadings(@CurrentUser() user: JwtUser, @Query() query: ReadingsQueryDto) {
+    return this.devices.allReadingsFor(user, query);
+  }
+
   @Get(':id')
   findOne(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
     return this.devices.findOneFor(user, id);

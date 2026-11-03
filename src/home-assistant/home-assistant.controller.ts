@@ -4,7 +4,7 @@ import { Client, ClientInfo } from '../activity/client-info.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Roles, RolesGuard } from '../auth/roles.guard';
-import { HaEntitiesDto, HaRelaysDto, HaMcbDto, HaMcbCommandDto, HaMcbSensorsDto } from './dto';
+import { HaEntitiesDto, HaRelaysDto, HaMcbDto, HaMcbCommandDto, HaMcbSensorsDto, HaManualRelayDto } from './dto';
 import { HomeAssistantService } from './home-assistant.service';
 import { HaRelayService } from './ha-relay.service';
 import { DevicesService } from '../devices/devices.service';
@@ -74,6 +74,15 @@ export class HomeAssistantController {
       deviceId: id, client, meta: { haRelays: device.haRelays },
     });
     return device;
+  }
+
+  @Post('devices/:id/relays/manual')
+  @Roles('admin', 'user')
+  async manualRelay(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HaManualRelayDto, @Client() client: ClientInfo) {
+    await this.devices.getOwned(user, id);
+    const result = await this.relays.manualSwitch(id, dto.relay, dto.action);
+    await this.activity.action(user.sub, 'relay.manual', `Relay ${dto.relay}: ${dto.action}`, { deviceId: id, client });
+    return result;
   }
 
   /** ?domain=sensor untuk menyaring entity */

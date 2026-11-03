@@ -1,4 +1,9 @@
-import { IsIn, IsOptional, IsString, Matches } from 'class-validator';
+import { IsIn, IsInt, Min, Max, IsOptional, IsString, Matches } from 'class-validator';
+
+export class HaManualRelayDto {
+  @IsInt() @Min(1) @Max(4) relay: number;
+  @IsIn(['ON', 'OFF']) action: 'ON' | 'OFF';
+}
 
 export class HaMcbDto {
   @IsString()
@@ -44,6 +49,8 @@ export class HaRelaysDto {
 }
 
 export class HaEntitiesDto {
+  @IsOptional() @IsString() @Matches(ENTITY_ID) flowIn?: string;
+  @IsOptional() @IsString() @Matches(ENTITY_ID) flowOut?: string;
   @IsOptional()
   @IsString()
   @Matches(ENTITY_ID, { message: `temperature ${MSG}` })
