@@ -184,8 +184,19 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async runSync() {
-    const devices = (await this.devices.find()).filter((d) => d.haEntities && Object.keys(d.haEntities).length);
+  private readonly deviceSyncs = new Map<number, Promise<{ devices: number; inserted: number; skipped: { deviceId: number; reason: string }[] }>>();
+  async syncDevice(device: Device) {
+    const pending = this.deviceSyncs.get(device.id);
+    if (pending) return pending;
+    if (!(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Sinkronisasi panel sedang dinonaktifkan. Hubungi pengelola kebun.');
+    if (!device.haEntities || !Object.keys(device.haEntities).length) throw new ServiceUnavailableException('Sensor panel belum dihubungkan. Hubungi pengelola kebun.');
+    const task = this.runSync([device]);
+    this.deviceSyncs.set(device.id, task);
+    try { return await task; } finally { if (this.deviceSyncs.get(device.id) === task) this.deviceSyncs.delete(device.id); }
+  }
+
+  private async runSync(selected?: Device[]) {
+    const devices = (selected ?? await this.devices.find()).filter((d) => d.haEntities && Object.keys(d.haEntities).length);
     if (!devices.length) {
       halog('debug', 'Sync: belum ada perangkat yang dipetakan ke entity HA');
       return { devices: 0, inserted: 0, skipped: [] as { deviceId: number; reason: string }[] };

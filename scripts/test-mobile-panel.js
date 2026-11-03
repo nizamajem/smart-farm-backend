@@ -84,6 +84,25 @@ test('persistent manual relay switches, shared ownership-filtered history and re
       await ha.sync(); row = await readings.findOne({where:{deviceId:a.id},order:{id:'DESC'}});
       assert.equal(row.flowIn,2); assert.equal(row.flowOut,null);
     });
+    await t.test('refresh syncs one owned panel before returning latest data', async () => {
+      const { HomeAssistantController } = require('../dist/home-assistant/home-assistant.controller');
+      const ha = new HomeAssistantService(repo, readings, {getBool:async()=>true});
+      const controller = new HomeAssistantController(ha, {}, relays, service);
+      await ha.setDeviceEntities(a.id, {ph:'sensor.ph',flowIn:'',flowOut:''});
+      await ha.setDeviceEntities(b.id, {ph:'sensor.ph'});
+      let requests = 0;
+      global.fetch = async () => { requests++; return Response.json([{entity_id:'sensor.ph',state:'6.7',attributes:{},last_updated:new Date().toISOString()}]); };
+      const before = await readings.count({where:{deviceId:b.id}});
+      const result = await controller.syncOwnedDevice({sub:owner.id,role:'user'},a.id);
+      assert.equal(result.synced,true); assert.equal(result.device.latestReading.ph,6.7);
+      assert.equal(await readings.count({where:{deviceId:b.id}}),before);
+      const count = requests;
+      await assert.rejects(controller.syncOwnedDevice({sub:other.id,role:'user'},a.id));
+      assert.equal(requests,count);
+      await assert.rejects(new HomeAssistantService(repo,readings,{getBool:async()=>false}).syncDevice(await repo.findOneByOrFail({id:a.id})),/dinonaktifkan/);
+      global.fetch = async () => Response.json([{entity_id:'sensor.ph',state:'unavailable',attributes:{} }]);
+      assert.equal((await controller.syncOwnedDevice({sub:owner.id,role:'user'},a.id)).synced,false);
+    });
   } finally {
     await relays.onModuleDestroy(); await db.destroy(); global.fetch = fetch;
     for (const [key,value] of Object.entries(env)) value === undefined ? delete process.env[key] : process.env[key] = value;

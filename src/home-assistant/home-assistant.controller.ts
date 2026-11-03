@@ -67,6 +67,14 @@ export class HomeAssistantController {
     return this.relays.status(await this.devices.getOwned(user, id));
   }
 
+  @Post('devices/:id/sync')
+  @Roles('admin', 'user')
+  async syncOwnedDevice(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
+    const device = await this.devices.getOwned(user, id);
+    const result = await this.ha.syncDevice(device);
+    return { synced: result.inserted > 0, device: await this.devices.findOneFor(user, id) };
+  }
+
   @Put('devices/:id/relays')
   async setRelays(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: HaRelaysDto, @Client() client: ClientInfo) {
     const device = await this.relays.saveMapping(id, dto);

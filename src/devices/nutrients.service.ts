@@ -168,7 +168,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       if (this.relays.mixCancelled(device.id, token)) status = 'stopped';
     } catch (e) { status = this.relays.mixCancelled(device.id, token) ? 'stopped' : 'failed'; error = (e as Error).message; }
     finally {
-      mix.phase = 'finishing';
+      if (status === 'completed') mix.phase = 'finishing';
       await this.devices.update(device.id, { lastMix: { ...mix } });
       try { await this.relays.cancelMix(device); } catch { status = 'failed'; error = 'Konfirmasi relay OFF gagal. Periksa alat.'; }
       await this.devices.update(device.id, { lastMix: { ...mix, status, ...(error ? { error } : {}), finishedAt: new Date().toISOString() } });
