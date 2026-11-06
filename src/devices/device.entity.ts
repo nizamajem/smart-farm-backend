@@ -49,13 +49,13 @@ export class Device {
   haMcbSensors: { power?: string; energy?: string } | null;
 
   @Column('simple-json', { nullable: true })
-  nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | { version: 2; waterLiters: number; aMl: number; bMl: number } | null;
+  nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | { version: 2; waterLiters: number; aMl: number; bMl: number; crop?: string; plantAgeDays?: number; targetTds?: number; targetPh?: number } | null;
 
   @Column('simple-json', { nullable: true })
   dosingPumps: Partial<Record<'a' | 'b' | 'phUp' | 'phDown', { seconds: number; ml: number }>> | null;
 
   @Column('simple-json', { nullable: true })
-  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; aMl?: number; bMl?: number; phase?: 'a' | 'b' | 'finishing'; phaseStartedAt?: string; startedAt: string; finishedAt?: string; error?: string } | null;
+  lastMix: { requestId: string; status: string; liters: number; aSeconds: number; bSeconds: number; aMl?: number; bMl?: number; phase?: 'a' | 'b' | 'ab' | 'finishing'; completedChannels?: string[]; recipe?: { version: 2; waterLiters: number; aMl: number; bMl: number; crop?: string; plantAgeDays?: number; targetTds?: number; targetPh?: number } | null; phaseStartedAt?: string; startedAt: string; finishedAt?: string; error?: string } | null;
 
   @Column('simple-json', { nullable: true })
   lastPhDose: { requestId: string; channel: 'phUp' | 'phDown'; ml: number; seconds: number; status: string; startedAt: string; finishedAt?: string; error?: string } | null;

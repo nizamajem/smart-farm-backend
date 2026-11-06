@@ -243,11 +243,14 @@ export class HaRelayService implements OnModuleDestroy {
     if (this.stopping || this.saving) throw new ConflictException('Relay belum siap menerima uji');
     if (!(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Integrasi Home Assistant sedang dimatikan');
     if (this.active.has(entityId)) throw new ConflictException('Relay ini sedang diuji. Tunggu selesai atau kirim Matikan.');
-    // One dosing channel per panel at a time, including pH Up vs pH Down.
+    // Only A/B belonging to the same reserved mix may overlap. pH stays exclusive.
     const device = await this.devices.findOneBy({ id: command.deviceId });
     if (!device || device.haRelays?.[RELAY_KEYS[command.relay - 1]] !== entityId) throw new ConflictException('Pemetaan berubah. Muat ulang panel.');
-    if (Object.values(device.haRelays || {}).some((id) => this.active.has(id))) throw new ConflictException('Tunggu kanal dosing lain selesai sebelum memulai uji');
-    if (this.stopping || this.saving || Object.values(device.haRelays || {}).some((id) => this.active.has(id))) throw new ConflictException('Kanal dosing sedang digunakan');
+    const parallelAB = !!mixToken && mix?.token === mixToken && mix.kind === 'mix' && [1, 2].includes(command.relay);
+    const otherBusy = () => Object.entries(device.haRelays || {}).some(([key, id]) => this.active.has(id) && !(parallelAB && ['relay1', 'relay2'].includes(key)));
+    if (this.stopping || this.saving || otherBusy()) throw new ConflictException('Kanal dosing sedang digunakan');
+    if (mixToken && this.mixCancelled(command.deviceId, mixToken)) throw new ConflictException('Campuran sudah dihentikan');
+    if (this.active.has(entityId)) throw new ConflictException('Relay ini sedang digunakan');
     let cancel!: () => void;
     let finish!: () => void;
     let wasCancelled = false;
@@ -262,7 +265,7 @@ export class HaRelayService implements OnModuleDestroy {
       if (state.state !== 'off') throw new ConflictException('Relay harus berstatus Mati sebelum uji. Periksa status atau kirim Matikan terlebih dahulu.');
       const current = await this.devices.findOneBy({ id: command.deviceId });
       if (current?.haRelays?.[RELAY_KEYS[command.relay - 1]] !== entityId) throw new ConflictException('Pemetaan berubah. Muat ulang panel.');
-      if (wasCancelled) return;
+      if (wasCancelled || (mixToken && this.mixCancelled(command.deviceId, mixToken))) return;
       attemptedOn = true;
       await this.set(entityId, true);
       const remaining = Math.min(command.durationMs, mixToken ? (mix?.kind === 'ph' ? MAX_PH_ON_MS : MAX_MIX_ON_MS) : MAX_ON_MS);

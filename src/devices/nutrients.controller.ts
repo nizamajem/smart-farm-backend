@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsIn, IsNumber, IsString, Matches, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsString, IsOptional, IsInt, MaxLength, Matches, Max, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
@@ -7,6 +7,10 @@ import { DevicesService } from './devices.service';
 import { NutrientsService } from './nutrients.service';
 
 export class RecipeDto {
+  @IsOptional() @IsString() @MaxLength(80) crop?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(3650) plantAgeDays?: number;
+  @IsOptional() @IsNumber() @Min(1) @Max(10000) targetTds?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(14) targetPh?: number;
   @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)
   @IsNumber({}, { message: 'Air utama harus berupa angka dalam liter' }) @Min(.01) @Max(1000000) waterLiters: number;
   @Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value.replace(',', '.')) : value)

@@ -27,13 +27,23 @@ test('persistent manual relay switches, shared ownership-filtered history and re
     return Response.json([...states].map(([entity_id, state]) => ({entity_id, state, attributes: {}})));
   };
   const relays = new HaRelayService(repo, { getBool: async () => enabled });
-  const service = new DevicesService(repo, readings, db.getRepository(RelayCommand), {}, {}, relays);
+  const service = new DevicesService(repo, readings, db.getRepository(RelayCommand), { action: async () => {} }, {}, relays);
   try {
     const owner = await db.getRepository(User).save({ name: 'Owner', email: 'owner@invalid.test', passwordHash: 'test', role: 'user' });
     const other = await db.getRepository(User).save({ name: 'Other', email: 'other@invalid.test', passwordHash: 'test', role: 'user' });
     const a = await repo.save({name:'Panel A', apiKey:'a',ownerId:owner.id,relayLabels:['A','B','Up','Down'],haRelays:mapping});
     const b = await repo.save({name:'Panel B', apiKey:'b',ownerId:owner.id,relayLabels:[]});
     const hidden = await repo.save({name:'Private', apiKey:'hidden',ownerId:other.id,relayLabels:[]});
+    await t.test('panel metadata updates persist without altering sensor mappings and reject other owners', async () => {
+      const user = { sub: owner.id, role: 'user' };
+      const updated = await service.update(user, a.id, { name: 'Green House 1', location: 'Lombok Timur' });
+      assert.equal(updated.name, 'Green House 1');
+      assert.equal(updated.location, 'Lombok Timur');
+      const stored = await repo.findOneByOrFail({ id: a.id });
+      assert.deepEqual(stored.haRelays, mapping);
+      await assert.rejects(service.update(user, hidden.id, { name: 'Changed', location: '' }));
+      assert.equal((await repo.findOneByOrFail({ id: hidden.id })).name, 'Private');
+    });
     await t.test('ON stays ON beyond the old 3-second pulse and only OFF stops it', async () => {
       const on = await relays.manualSwitch(a.id, 1, 'ON');
       assert.equal(on[0].state, 'on');
@@ -60,10 +70,10 @@ test('persistent manual relay switches, shared ownership-filtered history and re
       for (const [i, d] of [a, hidden, b, a].entries()) await readings.save({deviceId:d.id,temperature:20+i,createdAt:new Date(Date.UTC(2026,10,3,1,i))});
       const user = {sub:owner.id,role:'user'};
       const first = await service.allReadingsFor(user, {limit:2});
-      assert.deepEqual(first.map(r => r.deviceName), ['Panel B','Panel A']);
+      assert.deepEqual(first.map(r => r.deviceName), ['Panel B','Green House 1']);
       assert.ok(first.every(r => !('device' in r)), 'history never leaks API keys through device relations');
       const next = await service.allReadingsFor(user, {limit:2,offset:2});
-      assert.deepEqual(next.map(r => r.deviceName), ['Panel A']);
+      assert.deepEqual(next.map(r => r.deviceName), ['Green House 1']);
       assert.equal((await service.allReadingsFor({sub:owner.id,role:'admin'})).length, 4);
       await assert.rejects(service.allReadingsFor(user, {from:'2026-11-04',to:'2026-11-03'}));
     });

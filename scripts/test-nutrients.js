@@ -59,8 +59,11 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     service = new NutrientsService(repo, commands, relays);
     await service.savePump(device.id, 'a', { seconds: 4, ml: 10 });
     await service.savePump(device.id, 'b', { seconds: 4, ml: 10 });
-    await service.saveRecipe(device.id, { waterLiters: 10, aMl: 10, bMl: 10 });
+    await service.saveRecipe(device.id, { waterLiters: 10, aMl: 10, bMl: 10, crop: 'Melon', plantAgeDays: 30, targetTds: 1200, targetPh: 6 });
     const d = await repo.findOneByOrFail({ id: device.id });
+    assert.equal(d.nutrientRecipe.crop, 'Melon');
+    assert.equal(d.nutrientRecipe.targetTds, 1200);
+    assert.equal(d.nutrientRecipe.plantAgeDays, 30);
     const plan = service.plan(d, 10);
     assert.equal(plan.aSeconds, 4); assert.equal(plan.bSeconds, 4);
     assert.equal(service.plan(d, 20).aSeconds, 8);
@@ -78,7 +81,10 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     const completed = (await repo.findOneByOrFail({ id: device.id })).lastMix;
     assert.equal(completed.status, 'completed');
     const ons = calls.filter(c => c.on);
-    assert.deepEqual(ons.map(c => c.id), ['switch.a', 'switch.b']);
+    assert.deepEqual(ons.map(c => c.id).sort(), ['switch.a', 'switch.b']);
+    assert.ok(Math.abs(ons[0].at - ons[1].at) < 500, 'A and B must start together, not after the other completes');
+    assert.deepEqual(completed.completedChannels.sort(), ['a', 'b']);
+    assert.equal(completed.recipe.targetPh, 6);
     for (const on of ons) {
       const off = calls.find(c => c.id === on.id && !c.on && c.at >= on.at);
       assert.ok(off.at - on.at >= 3900, 'four seconds must not be clamped to the three-second test limit');
@@ -86,6 +92,19 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     const before = calls.length;
     await service.start(device.id, input, owner.id);
     assert.equal(calls.length, before, 'retry completed request must not dose again');
+    await service.savePump(device.id, 'a', { seconds: .5, ml: 10 });
+    await service.savePump(device.id, 'b', { seconds: 1.2, ml: 10 });
+    const unequalOffset = calls.length;
+    const unequalPlan = service.plan(await repo.findOneByOrFail({ id: device.id }), 10);
+    await service.start(device.id, {...input, requestId:'unequal_0001', calibrationKey:unequalPlan.calibrationKey}, owner.id);
+    for (let i = 0; i < 60; i++) { if ((await repo.findOneByOrFail({ id: device.id })).lastMix.status !== 'running') break; await wait(50); }
+    const unequalCalls = calls.slice(unequalOffset);
+    const aOn = unequalCalls.find(c => c.id === 'switch.a' && c.on), bOn = unequalCalls.find(c => c.id === 'switch.b' && c.on);
+    const aOff = unequalCalls.find(c => c.id === 'switch.a' && !c.on), bOff = unequalCalls.find(c => c.id === 'switch.b' && !c.on);
+    assert.ok(Math.abs(aOn.at - bOn.at) < 300);
+    assert.ok(aOff.at - aOn.at >= 450 && aOff.at - aOn.at < 1000);
+    assert.ok(bOff.at - bOn.at >= 1150);
+    assert.equal((await repo.findOneByOrFail({ id: device.id })).lastMix.status, 'completed');
     await service.savePump(device.id, 'a', { seconds: .5, ml: 10 });
     await service.savePump(device.id, 'b', { seconds: .5, ml: 10 });
     const next = { ...input, calibrationKey: service.plan(await repo.findOneByOrFail({ id: device.id }), 10).calibrationKey, requestId: 'mix_stop_0001' };

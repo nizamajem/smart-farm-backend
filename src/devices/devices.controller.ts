@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
 import { Client, ClientInfo } from '../activity/client-info.decorator';
 import { DevicesService } from './devices.service';
-import { CreateCommandDto, CreateDeviceDto, ReadingsQueryDto } from './dto';
+import { CreateCommandDto, CreateDeviceDto, UpdateDeviceDto, ReadingsQueryDto } from './dto';
 
 @Controller('devices')
 @UseGuards(JwtAuthGuard)
@@ -28,6 +28,11 @@ export class DevicesController {
   @Get(':id')
   findOne(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
     return this.devices.findOneFor(user, id);
+  }
+
+  @Patch(':id')
+  update(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDeviceDto, @Client() client: ClientInfo) {
+    return this.devices.update(user, id, dto, client);
   }
 
   @Delete(':id')

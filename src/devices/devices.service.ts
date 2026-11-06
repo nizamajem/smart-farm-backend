@@ -8,7 +8,7 @@ import { JwtUser } from '../auth/jwt-auth.guard';
 import { DeviceEvents } from './device-events';
 import { DEFAULT_RELAY_LABELS, Device, RELAY_KEYS } from './device.entity';
 import { HaRelayService } from '../home-assistant/ha-relay.service';
-import { CreateCommandDto, CreateDeviceDto, CreateReadingDto, MAX_ON_MS, ReadingsQueryDto } from './dto';
+import { CreateCommandDto, CreateDeviceDto, UpdateDeviceDto, CreateReadingDto, MAX_ON_MS, ReadingsQueryDto } from './dto';
 import { RelayCommand } from './relay-command.entity';
 import { ReadingSource, SensorReading } from './sensor-reading.entity';
 
@@ -54,6 +54,13 @@ export class DevicesService {
     );
     await this.activity.action(user.sub, 'device.create', `Menambah perangkat "${device.name}"`, { deviceId: device.id, client });
     return this.withStatus(device);
+  }
+
+  async update(user: JwtUser, id: number, dto: UpdateDeviceDto, client?: ClientInfo) {
+    await this.getOwned(user, id);
+    await this.devices.update(id, { name: dto.name, location: dto.location });
+    await this.activity.action(user.sub, 'device.update', `Mengubah informasi panel "${dto.name}"`, { deviceId: id, client });
+    return this.findOneFor(user, id);
   }
 
   async remove(user: JwtUser, id: number, client?: ClientInfo) {

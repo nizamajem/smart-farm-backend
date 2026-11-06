@@ -144,7 +144,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       const states = await this.relays.status(device);
       const unavailable = states.filter(s => (s.relay <= 2 || s.entityId) && s.state !== 'off');
       if (unavailable.length) throw new ConflictException(`Campuran belum dimulai. ${unavailable.map(s => `Relay ${s.relay}${s.entityId ? ` (${s.entityId})` : ''}: ${s.state === 'on' ? 'masih menyala' : 'status belum tersedia'}`).join('; ')}. Periksa entity dan pastikan relay Mati di Home Assistant.`);
-      const mix: NonNullable<Device['lastMix']> = { requestId: dto.requestId, status: 'running', liters: dto.liters, aSeconds: plan.aSeconds!, bSeconds: plan.bSeconds!, aMl: plan.aMl, bMl: plan.bMl, startedAt: new Date().toISOString() };
+      const mix: NonNullable<Device['lastMix']> = { requestId: dto.requestId, status: 'running', liters: dto.liters, aSeconds: plan.aSeconds!, bSeconds: plan.bSeconds!, aMl: plan.aMl, bMl: plan.bMl, recipe: this.status(device).recipe, startedAt: new Date().toISOString() };
       await this.devices.update(id, { lastMix: mix });
       const job = this.run(device, mix, token, userId);
       this.jobs.set(id, job);
@@ -155,18 +155,36 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
   private async run(device: Device, mix: NonNullable<Device['lastMix']>, token: symbol, userId: number) {
     let status = 'completed', error: string | undefined;
     try {
-      for (const [relay, seconds] of [[1, mix.aSeconds], [2, mix.bSeconds]]) {
-        if (this.relays.mixCancelled(device.id, token)) { status = 'stopped'; break; }
-        mix.phase = relay === 1 ? 'a' : 'b';
-        mix.phaseStartedAt = new Date().toISOString();
-        await this.devices.update(device.id, { lastMix: { ...mix } });
-        const command = await this.commands.save(this.commands.create({ deviceId: device.id, relay, action: 'ON', durationMs: Math.round(seconds * 1000), transport: 'ha', status: 'sent', requestedById: userId }));
-        try { await this.relays.execute(command, device.haRelays![relay === 1 ? 'relay1' : 'relay2']!, token); command.status = 'done'; command.ackAt = new Date(); }
-        catch (e) { command.status = 'failed'; throw e; }
-        finally { await this.commands.save(command); }
-      }
+      mix.phase = 'ab';
+      mix.phaseStartedAt = new Date().toISOString();
+      mix.completedChannels = [];
+      await this.devices.update(device.id, { lastMix: { ...mix } });
+      let firstError: unknown;
+      let writes = Promise.resolve();
+      const outcomes = await Promise.allSettled(([ [1, mix.aSeconds], [2, mix.bSeconds] ] as const).map(async ([relay, seconds]) => {
+        let command: RelayCommand | undefined;
+        try {
+          if (this.relays.mixCancelled(device.id, token)) return;
+          command = await this.commands.save(this.commands.create({ deviceId: device.id, relay, action: 'ON', durationMs: Math.round(seconds * 1000), transport: 'ha', status: 'sent', requestedById: userId }));
+          await this.relays.execute(command, device.haRelays![relay === 1 ? 'relay1' : 'relay2']!, token);
+          command.status = 'done'; command.ackAt = new Date();
+          if (!this.relays.mixCancelled(device.id, token)) {
+            mix.completedChannels!.push(relay === 1 ? 'a' : 'b');
+            writes = writes.then(async () => { await this.devices.update(device.id, { lastMix: { ...mix } }); });
+            await writes;
+          }
+        } catch (e) {
+          if (!this.relays.mixCancelled(device.id, token)) firstError ??= e;
+          if (command) command.status = 'failed';
+          try { await this.relays.cancelMix(device); } catch { /* final OFF verification below */ }
+        } finally { if (command) await this.commands.save(command); }
+      }));
+      await writes;
+      const rejected = outcomes.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      if (rejected) throw rejected.reason;
+      if (firstError) throw firstError;
       if (this.relays.mixCancelled(device.id, token)) status = 'stopped';
-    } catch (e) { status = this.relays.mixCancelled(device.id, token) ? 'stopped' : 'failed'; error = (e as Error).message; }
+    } catch (e) { status = 'failed'; error = (e as Error).message; }
     finally {
       if (status === 'completed') mix.phase = 'finishing';
       await this.devices.update(device.id, { lastMix: { ...mix } });

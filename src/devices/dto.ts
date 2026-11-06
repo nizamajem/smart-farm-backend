@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
@@ -35,6 +36,19 @@ export class CreateDeviceDto {
   @ArrayMaxSize(4)
   @IsString({ each: true })
   relayLabels?: string[];
+}
+
+export class UpdateDeviceDto {
+  @Transform(trim)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(255)
+  name: string;
+
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  location: string;
 }
 
 export class CreateCommandDto {
