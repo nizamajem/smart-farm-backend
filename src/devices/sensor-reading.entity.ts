@@ -58,6 +58,15 @@ export class SensorReading {
   @Column('real', { nullable: true })
   flowOut: number | null;
 
+  @Column('real', { nullable: true })
+  flowOutTotal: number | null;
+  @Column('real', { nullable: true })
+  mcbPower: number | null;
+  @Column('real', { nullable: true })
+  mcbVoltage: number | null;
+  @Column('real', { nullable: true })
+  mcbCurrent: number | null;
+
   /** Jalur masuk data: http (ESP32 REST), mqtt, atau ha (Home Assistant) */
   @Column({ type: 'varchar', default: 'http' })
   source: ReadingSource;

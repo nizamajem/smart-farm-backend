@@ -10,7 +10,7 @@ import { User } from '../users/user.entity';
 
 export const DEFAULT_RELAY_LABELS = ['Pompa Air', 'Kipas', 'Lampu Tumbuh', 'Pompa Nutrisi'];
 
-export const HA_METRICS = ['temperature', 'humidity', 'soilMoisture', 'lightLux', 'ph', 'orp', 'conductivity', 'tds', 'salinity', 'specificGravity', 'conductivityFactor', 'flowIn', 'flowOut'] as const;
+export const HA_METRICS = ['temperature', 'humidity', 'soilMoisture', 'lightLux', 'ph', 'orp', 'conductivity', 'tds', 'salinity', 'specificGravity', 'conductivityFactor', 'flowIn', 'flowOut', 'flowOutTotal'] as const;
 export type HaMetric = (typeof HA_METRICS)[number];
 /** Metrik sensor → entity_id Home Assistant, mis. { temperature: 'sensor.greenhouse_suhu' } */
 export type HaEntityMap = Partial<Record<HaMetric, string>>;
@@ -46,7 +46,7 @@ export class Device {
   haMcbEntity: string | null;
 
   @Column('simple-json', { nullable: true })
-  haMcbSensors: { power?: string; energy?: string } | null;
+  haMcbSensors: { power?: string; energy?: string; voltage?: string; current?: string } | null;
 
   @Column('simple-json', { nullable: true })
   nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | { version: 2; waterLiters: number; aMl: number; bMl: number; crop?: string; plantAgeDays?: number; targetTds?: number; targetPh?: number } | null;

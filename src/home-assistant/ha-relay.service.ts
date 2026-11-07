@@ -1,3 +1,4 @@
+import { mcbMetric } from './mcb-metrics';
 import { BadGatewayException, BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -146,15 +147,7 @@ export class HaRelayService implements OnModuleDestroy {
     const entityId = device.haMcbEntity;
     const states = entityId || Object.values(device.haMcbSensors || {}).some(Boolean) ? await this.request<HaState[]>('/states') : [];
     const state = states.find(s => s.entity_id === entityId);
-    const metric = (id: string | undefined, kind: 'power' | 'energy') => {
-      const s = states.find(s => s.entity_id === id);
-      if (!s || !s.state.trim() || !Number.isFinite(Number(s.state)) || Number(s.state) < 0) return null;
-      const units: Record<string, number | undefined> = kind === 'power' ? { W: 1, kW: 1000 } : { Wh: .001, kWh: 1 };
-      const factor = units[s.attributes.unit_of_measurement || ''];
-      if (factor == null) return null;
-      const value = Number(s.state) * factor;
-      return Number.isFinite(value) ? { value, updatedAt: s.last_updated || null } : null;
-    };
+    const metric = (id: string | undefined, kind: 'power' | 'energy' | 'voltage' | 'current') => mcbMetric(states.find(s => s.entity_id === id), kind);
     return {
       entityId,
       state: state?.state === 'on' || state?.state === 'off' ? state.state : entityId ? 'unavailable' : 'unmapped',
@@ -162,21 +155,23 @@ export class HaRelayService implements OnModuleDestroy {
       updatedAt: state?.last_updated || null,
       power: metric(device.haMcbSensors?.power, 'power'),
       energy: metric(device.haMcbSensors?.energy, 'energy'),
+      voltage: metric(device.haMcbSensors?.voltage, 'voltage'),
+      current: metric(device.haMcbSensors?.current, 'current'),
     };
   }
 
-  async saveMcbSensors(id: number, sensors: { power: string; energy: string }) {
-    const states = sensors.power || sensors.energy ? await this.request<HaState[]>('/states') : [];
-    for (const key of ['power', 'energy'] as const) {
+  async saveMcbSensors(id: number, sensors: { power: string; energy: string; voltage?: string; current?: string }) {
+    const states = Object.values(sensors).some(Boolean) ? await this.request<HaState[]>('/states') : [];
+    for (const key of ['power', 'energy', 'voltage', 'current'] as const) {
       if (!sensors[key]) continue;
       const state = states.find(s => s.entity_id === sensors[key]);
-      const units = key === 'power' ? ['W', 'kW'] : ['Wh', 'kWh'];
-      if (!state || !units.includes(state.attributes.unit_of_measurement || '')) throw new BadRequestException(`Pilih sensor ${key === 'power' ? 'daya W/kW' : 'energi Wh/kWh'} yang sesuai`);
+      const units = {power:['W','kW'],energy:['Wh','kWh'],voltage:['V','mV','kV'],current:['A','mA']}[key];
+      if (!state || !units.includes(state.attributes.unit_of_measurement || '')) throw new BadRequestException(`Pilih sensor ${{power:'daya W/kW',energy:'energi Wh/kWh',voltage:'tegangan V',current:'arus A'}[key]} yang sesuai`);
     }
-    if (sensors.power && sensors.power === sensors.energy) throw new BadRequestException('Sensor daya dan energi harus berbeda');
+    if (new Set(Object.values(sensors).filter(Boolean)).size !== Object.values(sensors).filter(Boolean).length) throw new BadRequestException('Pilih sensor listrik yang berbeda untuk tiap parameter');
     const selected = Object.values(sensors).filter(Boolean);
     if ((await this.devices.find()).some(d => d.id !== id && Object.values(d.haMcbSensors || {}).some(entity => selected.includes(entity)))) throw new BadRequestException('Sensor listrik sudah dipakai panel lain');
-    await this.devices.update(id, { haMcbSensors: { power: sensors.power || undefined, energy: sensors.energy || undefined } });
+    await this.devices.update(id, { haMcbSensors: { ...(await this.devices.findOneByOrFail({id})).haMcbSensors, ...Object.fromEntries(Object.entries(sensors).map(([key,value]) => [key,value || undefined])) } });
     return this.devices.findOneByOrFail({ id });
   }
 

@@ -23,6 +23,8 @@ export class HaMcbSensorsDto {
   @IsString()
   @Matches(/^(?:sensor\.[a-z0-9_]+)?$/)
   energy: string;
+  @IsOptional() @IsString() @Matches(/^(?:sensor\.[a-z0-9_]+)?$/) voltage?: string;
+  @IsOptional() @IsString() @Matches(/^(?:sensor\.[a-z0-9_]+)?$/) current?: string;
 }
 
 // entity_id HA, mis. "sensor.greenhouse_suhu". String kosong = hapus pemetaan.
@@ -51,6 +53,7 @@ export class HaRelaysDto {
 export class HaEntitiesDto {
   @IsOptional() @IsString() @Matches(ENTITY_ID) flowIn?: string;
   @IsOptional() @IsString() @Matches(ENTITY_ID) flowOut?: string;
+  @IsOptional() @IsString() @Matches(ENTITY_ID) flowOutTotal?: string;
   @IsOptional()
   @IsString()
   @Matches(ENTITY_ID, { message: `temperature ${MSG}` })

@@ -1,3 +1,4 @@
+import { mcbMetric } from './mcb-metrics';
 import {
   BadGatewayException,
   Injectable,
@@ -189,14 +190,14 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
     const pending = this.deviceSyncs.get(device.id);
     if (pending) return pending;
     if (!(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Sinkronisasi panel sedang dinonaktifkan. Hubungi pengelola kebun.');
-    if (!device.haEntities || !Object.keys(device.haEntities).length) throw new ServiceUnavailableException('Sensor panel belum dihubungkan. Hubungi pengelola kebun.');
+    if ((!device.haEntities || !Object.keys(device.haEntities).length) && !Object.values(device.haMcbSensors || {}).some(Boolean)) throw new ServiceUnavailableException('Sensor panel belum dihubungkan. Hubungi pengelola kebun.');
     const task = this.runSync([device]);
     this.deviceSyncs.set(device.id, task);
     try { return await task; } finally { if (this.deviceSyncs.get(device.id) === task) this.deviceSyncs.delete(device.id); }
   }
 
   private async runSync(selected?: Device[]) {
-    const devices = (selected ?? await this.devices.find()).filter((d) => d.haEntities && Object.keys(d.haEntities).length);
+    const devices = (selected ?? await this.devices.find()).filter((d) => (d.haEntities && Object.keys(d.haEntities).length) || Object.values(d.haMcbSensors || {}).some(Boolean));
     if (!devices.length) {
       halog('debug', 'Sync: belum ada perangkat yang dipetakan ke entity HA');
       return { devices: 0, inserted: 0, skipped: [] as { deviceId: number; reason: string }[] };
@@ -208,12 +209,12 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
     const skipped: { deviceId: number; reason: string }[] = [];
 
     for (const device of devices) {
-      const values: Partial<Record<(typeof HA_METRICS)[number], number>> = {};
+      const values: Partial<Record<(typeof HA_METRICS)[number] | 'mcbPower' | 'mcbVoltage' | 'mcbCurrent', number>> = {};
       const missing: string[] = [];
       const raw: Record<string, unknown> = {};
       let latest = 0;
       for (const metric of HA_METRICS) {
-        const entityId = device.haEntities![metric];
+        const entityId = device.haEntities?.[metric];
         if (!entityId) continue;
         const s = byId.get(entityId);
         if (!s) {
@@ -228,9 +229,26 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
           else if (unit !== 'l/min') v = null;
           if (v != null && v < 0) v = null;
         }
+        if (metric === 'flowOutTotal' && v != null) {
+          const unit = String(s.attributes?.unit_of_measurement || '').toLowerCase().replace(/\s/g, '');
+          if (unit === 'm3' || unit === 'm\u00b3') v *= 1000;
+          else if (unit === 'ml') v /= 1000;
+          else if (unit !== 'l') v = null;
+          if (v != null && v < 0) v = null;
+        }
         if (v != null) values[metric] = v;
         latest = Math.max(latest, Date.parse(s.last_reported ?? s.last_updated) || 0);
         raw[entityId] = { state: s.state, unit: s.attributes?.unit_of_measurement, last_updated: s.last_updated };
+      }
+      for (const [kind, column] of [['power','mcbPower'],['voltage','mcbVoltage'],['current','mcbCurrent']] as const) {
+        const entity = device.haMcbSensors?.[kind];
+        if (!entity) continue;
+        const state = byId.get(entity);
+        const metric = mcbMetric(state, kind);
+        if (metric) {
+          values[column] = metric.value;
+          latest = Math.max(latest, Date.parse(state?.last_reported ?? state?.last_updated ?? '') || 0);
+        }
       }
       if (!Object.keys(values).length) {
         const reason = missing.length ? `entity tidak ada: ${missing.join(', ')}` : 'semua nilai kosong / unavailable';
