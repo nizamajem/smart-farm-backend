@@ -19,11 +19,11 @@ test('persistent manual relay switches, shared ownership-filtered history and re
   const repo = db.getRepository(Device), readings = db.getRepository(SensorReading);
   const states = new Map(['switch.a','switch.b','switch.up','switch.down'].map(id => [id, 'off']));
   const calls = [];
-  let enabled = true;
+  let enabled = true, failBOn = false;
   const mapping = { relay1: 'switch.a', relay2: 'switch.b', relay3: 'switch.up', relay4: 'switch.down' };
   global.fetch = async (url, init) => {
     const path = new URL(url).pathname;
-    if (init.method === 'POST') { const id = JSON.parse(init.body).entity_id; const on = path.endsWith('turn_on'); calls.push({ id, on }); states.set(id, on ? 'on' : 'off'); return Response.json([]); }
+    if (init.method === 'POST') { const id = JSON.parse(init.body).entity_id; const on = path.endsWith('turn_on'); calls.push({ id, on }); if (on && id === 'switch.b' && failBOn) return Response.json({}, {status:503}); states.set(id, on ? 'on' : 'off'); return Response.json([]); }
     return Response.json([...states].map(([entity_id, state]) => ({entity_id, state, attributes: {}})));
   };
   const relays = new HaRelayService(repo, { getBool: async () => enabled });
@@ -47,12 +47,26 @@ test('persistent manual relay switches, shared ownership-filtered history and re
     await t.test('ON stays ON beyond the old 3-second pulse and only OFF stops it', async () => {
       const on = await relays.manualSwitch(a.id, 1, 'ON');
       assert.equal(on[0].state, 'on');
+      assert.equal(on[1].state, 'on');
       await new Promise(resolve => setTimeout(resolve, 3100));
       assert.equal(states.get(mapping.relay1), 'on');
       await assert.rejects(relays.saveMapping(a.id, mapping), /Matikan relay/);
       await relays.manualSwitch(a.id, 1, 'OFF');
       assert.equal(states.get(mapping.relay1), 'off');
-      assert.deepEqual(calls.map(c => c.on), [true, false]);
+      assert.deepEqual(calls.map(c => c.on), [true, true, false, false]);
+    });
+    await t.test('manual A/B failure turns both OFF and never reports partial success', async () => {
+      failBOn = true;
+      await assert.rejects(relays.manualSwitch(a.id, 1, 'ON'));
+      assert.equal(states.get('switch.a'), 'off');
+      assert.equal(states.get('switch.b'), 'off');
+      failBOn = false;
+      await relays.manualSwitch(a.id, 2, 'ON');
+      assert.equal(states.get('switch.a'), 'on');
+      assert.equal(states.get('switch.b'), 'on');
+      await relays.manualSwitch(a.id, 2, 'OFF');
+      assert.equal(states.get('switch.a'), 'off');
+      assert.equal(states.get('switch.b'), 'off');
     });
     await t.test('dosing and manual operations cannot race; OFF remains available', async () => {
       const token = relays.reserveMix(a.id);

@@ -200,14 +200,31 @@ export class HaRelayService implements OnModuleDestroy {
     this.manualBusy.add(deviceId);
     try {
       const device = await this.devices.findOneByOrFail({ id: deviceId });
-      const entity = device.haRelays?.[RELAY_KEYS[relay - 1]];
-      if (!entity || !validEntity(entity)) throw new BadRequestException('Relay belum terhubung ke Home Assistant');
+      const channels = relay <= 2 ? [1, 2] : [relay];
+      const entities = channels.map(channel => device.haRelays?.[RELAY_KEYS[channel - 1]]);
       if (action === 'ON') {
+        if (entities.some(entity => !entity || !validEntity(entity))) throw new BadRequestException('Relay belum terhubung ke Home Assistant');
         if (!(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Integrasi Home Assistant sedang dimatikan');
         if (Object.values(device.haRelays || {}).some(id => this.active.has(id)) || this.mixes.has(deviceId)) throw new ConflictException('Tunggu dosing selesai');
-        await this.set(entity, true);
+        const results = await Promise.allSettled(entities.map(entity => this.set(entity!, true)));
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) {
+          await Promise.allSettled(entities.filter((entity): entity is string => !!entity).map(entity => this.turnOff(entity)));
+          throw failed.reason;
+        }
+        const states = await this.status(device);
+        if (channels.some(channel => states.find(state => state.relay === channel)?.state !== 'on')) {
+          await Promise.allSettled(entities.filter((entity): entity is string => !!entity).map(entity => this.turnOff(entity)));
+          throw new ConflictException('Kedua relay belum terkonfirmasi menyala; A/B dihentikan');
+        }
+        return states;
       } else {
-        await this.execute({ deviceId, relay, action: 'OFF' } as RelayCommand, entity);
+        // Stop both available channels even if one mapping is missing.
+        const mapped = entities.filter((entity): entity is string => !!entity && validEntity(entity));
+        if (!mapped.length) throw new BadRequestException('Relay belum terhubung ke Home Assistant');
+        const results = await Promise.allSettled(mapped.map(entity => this.execute({ deviceId, relay, action: 'OFF' } as RelayCommand, entity)));
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) throw failed.reason;
       }
       return this.status(device);
     } finally { this.manualBusy.delete(deviceId); }

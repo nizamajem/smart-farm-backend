@@ -95,12 +95,14 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     finally { this.relays.releaseMix(id, token); }
   }
   async savePump(id: number, channel: string, calibration: PumpCalibrationDto, onlyIfMissing = false) {
-    if (!['a', 'b', 'phUp', 'phDown'].includes(channel)) throw new BadRequestException('Kanal pompa tidak dikenal');
+    if (!['ab', 'a', 'b', 'phUp', 'phDown'].includes(channel)) throw new BadRequestException('Kanal pompa tidak dikenal');
     const token = this.relays.reserveMix(id);
     try {
       const device = await this.devices.findOneByOrFail({ id });
       if (onlyIfMissing && device.dosingPumps?.[channel as keyof NonNullable<Device['dosingPumps']>]) return this.status(device);
-      await this.devices.update(id, { dosingPumps: { ...device.dosingPumps, [channel]: { seconds: calibration.seconds, ml: calibration.ml } } });
+      const measured = { seconds: calibration.seconds, ml: calibration.ml };
+      const changes = ['ab', 'a', 'b'].includes(channel) && !onlyIfMissing ? { a: measured, b: measured } : { [channel]: measured };
+      await this.devices.update(id, { dosingPumps: { ...device.dosingPumps, ...changes } });
       return this.status(await this.devices.findOneByOrFail({ id }));
     } finally { this.relays.releaseMix(id, token); }
   }
@@ -117,6 +119,8 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     const issues: string[] = [];
     if (aSeconds == null) issues.push('Kalibrasi pompa A: isi ml yang keluar dan lama relay menyala.');
     if (bSeconds == null) issues.push('Kalibrasi pompa B: isi ml yang keluar dan lama relay menyala.');
+    const paired = aSeconds != null && bSeconds != null && aSeconds === bSeconds;
+    if (!paired && aSeconds != null && bSeconds != null) issues.push('A dan B harus memakai durasi yang sama. Atur kalibrasi A + B bersama.');
     const withinLimits = [aSeconds, bSeconds].every(n => n != null && Number.isFinite(n) && n >= .5 && n * 1000 <= MAX_MIX_ON_MS);
     const aPerLiter = pumps.a ? r.aMl / r.waterLiters / pumps.a.ml * pumps.a.seconds : null;
     const bPerLiter = pumps.b ? r.bMl / r.waterLiters / pumps.b.ml * pumps.b.seconds : null;
@@ -125,7 +129,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     if (aSeconds != null && bSeconds != null && !withinLimits) issues.push('Durasi hasil hitung di luar 0,5–60 detik. Periksa resep ml dan hasil kalibrasi pompa.');
     const mapped = !!device.haRelays?.relay1 && !!device.haRelays?.relay2;
     if (!mapped) issues.push('Hubungkan relay A dan B di Pengaturan alat.');
-    return { liters, aMl, bMl, aSeconds, bSeconds, calibrationKey: JSON.stringify({ recipe: r, a: pumps.a, b: pumps.b }), ready: withinLimits && mapped, issues, minLiters, maxLiters };
+    return { liters, aMl, bMl, aSeconds, bSeconds, calibrationKey: JSON.stringify({ recipe: r, a: pumps.a, b: pumps.b }), ready: withinLimits && mapped && paired, issues, minLiters, maxLiters };
   }
   async start(id: number, dto: MixDto, userId: number) {
     if (this.jobs.has(id)) {
