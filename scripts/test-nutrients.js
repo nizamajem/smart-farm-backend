@@ -118,7 +118,9 @@ test('calibrated mixing runs exact A/B durations, rejects duplicates and can sto
     await service.savePump(device.id, 'a', { seconds: .5, ml: 10 });
     await service.savePump(device.id, 'b', { seconds: .5, ml: 10 });
     const next = { ...input, calibrationKey: service.plan(await repo.findOneByOrFail({ id: device.id }), 10).calibrationKey, requestId: 'mix_stop_0001' };
-    await service.start(device.id, next, owner.id);
+    await assert.rejects(service.start(device.id, {...next, newWater:false}, owner.id));
+    await service.start(device.id, {...next, newWater:false, mode:'correction'}, owner.id);
+    assert.equal((await repo.findOneByOrFail({id:device.id})).lastMix.mode, 'correction');
     await service.stop(device.id);
     assert.equal((await repo.findOneByOrFail({ id: device.id })).lastMix.status, 'stopped');
     assert.ok([...states.values()].every(s => s === 'off'));

@@ -29,6 +29,7 @@ export class PlanDto {
   @IsNumber({}, { message: 'Jumlah air harus berupa angka' }) @Min(.01, { message: 'Jumlah air minimal 0,01 liter' }) @Max(1000000) liters: number;
 }
 export class MixDto extends PlanDto {
+  @IsOptional() @IsIn(['initial', 'correction']) mode?: 'initial' | 'correction';
   @IsBoolean() newWater: boolean;
   @IsString() @Matches(/^[a-zA-Z0-9_-]{8,100}$/) requestId: string;
   @IsString() calibrationKey: string;

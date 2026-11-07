@@ -141,14 +141,14 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     try {
       const device = await this.devices.findOneByOrFail({ id });
       if (device.lastMix?.requestId === dto.requestId) { this.relays.releaseMix(id, token); return this.status(device); }
-      if (!dto.newWater) throw new BadRequestException('Konfirmasi air belum diberi AB mix');
+      if (!dto.newWater && dto.mode !== 'correction') throw new BadRequestException('Konfirmasi air belum diberi AB mix');
       const plan = this.plan(device, dto.liters);
       if (dto.calibrationKey !== plan.calibrationKey) throw new ConflictException('Kalibrasi berubah. Hitung ulang takaran.');
       if (!plan.ready) throw new BadRequestException(plan.issues.join(' '));
       const states = await this.relays.status(device);
       const unavailable = states.filter(s => (s.relay <= 2 || s.entityId) && s.state !== 'off');
       if (unavailable.length) throw new ConflictException(`Campuran belum dimulai. ${unavailable.map(s => `Relay ${s.relay}${s.entityId ? ` (${s.entityId})` : ''}: ${s.state === 'on' ? 'masih menyala' : 'status belum tersedia'}`).join('; ')}. Periksa entity dan pastikan relay Mati di Home Assistant.`);
-      const mix: NonNullable<Device['lastMix']> = { requestId: dto.requestId, status: 'running', liters: dto.liters, aSeconds: plan.aSeconds!, bSeconds: plan.bSeconds!, aMl: plan.aMl, bMl: plan.bMl, recipe: this.status(device).recipe, startedAt: new Date().toISOString() };
+      const mix: NonNullable<Device['lastMix']> = { requestId: dto.requestId, mode: dto.mode ?? 'initial', status: 'running', liters: dto.liters, aSeconds: plan.aSeconds!, bSeconds: plan.bSeconds!, aMl: plan.aMl, bMl: plan.bMl, recipe: this.status(device).recipe, startedAt: new Date().toISOString() };
       await this.devices.update(id, { lastMix: mix });
       const job = this.run(device, mix, token, userId);
       this.jobs.set(id, job);
