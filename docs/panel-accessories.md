@@ -8,7 +8,7 @@ MCB memakai pemetaan dan riwayat listrik yang sudah ada. Komponen tambahan
 disimpan di `devices.accessories`, terpisah dari empat relay larutan.
 Panel lama mendapat slot kosong secara otomatis pada tampilan.
 
-Admin membuka Kontrol panel di website, lalu **Pengaturan perlengkapan**.
+Admin membuka **Pengaturan alat** pada panel di website, lalu **Pengaturan perlengkapan**.
 Pilih entity Home Assistant untuk setiap parameter, ubah nama bila perlu,
 tambahkan soil sensor, lalu simpan. Pengaturan tidak menyalakan perangkat.
 Smart Plug dan Smart Valve pada integrasi ini memakai entity `switch`,
