@@ -49,6 +49,9 @@ export class Device {
   haMcbSensors: { power?: string; energy?: string; voltage?: string; current?: string } | null;
 
   @Column('simple-json', { nullable: true })
+  accessories: import('./panel-accessories').PanelAccessories | null;
+
+  @Column('simple-json', { nullable: true })
   nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | { version: 2; waterLiters: number; aMl: number; bMl: number; crop?: string; plantAgeDays?: number; targetTds?: number; targetPh?: number } | null;
 
   @Column('simple-json', { nullable: true })

@@ -96,6 +96,7 @@ export class HaRelayService implements OnModuleDestroy {
         const states = await this.choices();
         if (ids.some((id) => !states.some((s) => s.entity_id === id))) throw new BadRequestException('Entity relay tidak ditemukan di Home Assistant. Muat ulang daftar entity.');
         const other = await this.devices.find();
+        if (other.some(d => [...(d.accessories?.plugs || []), d.accessories?.valve].some(p => p?.entity && ids.includes(p.entity)))) throw new BadRequestException('Entity sudah digunakan oleh perlengkapan panel');
         if (other.some((d) => (d.haMcbEntity && ids.includes(d.haMcbEntity)) || (d.id !== deviceId && Object.values(d.haRelays || {}).some((id) => ids.includes(id))))) {
           throw new BadRequestException('Entity relay sudah dipakai panel lain');
         }
@@ -134,6 +135,7 @@ export class HaRelayService implements OnModuleDestroy {
         const choices = await this.choices();
         if (!choices.some(s => s.entity_id === entityId)) throw new BadRequestException('Entity MCB tidak ditemukan di Home Assistant');
         const all = await this.devices.find();
+        if (all.some(d => [...(d.accessories?.plugs || []), d.accessories?.valve].some(p => p?.entity === entityId))) throw new BadRequestException('Entity sudah digunakan oleh perlengkapan panel');
         if (all.some(d => Object.values(d.haRelays || {}).includes(entityId) || (d.id !== deviceId && d.haMcbEntity === entityId))) {
           throw new BadRequestException('Entity sudah digunakan oleh relay atau MCB panel lain');
         }

@@ -1,3 +1,6 @@
+import { Roles, RolesGuard } from '../auth/roles.guard';
+import { PanelAccessoriesService } from './panel-accessories.service';
+import { AccessoryCommand, PanelAccessories } from './panel-accessories';
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, JwtUser } from '../auth/jwt-auth.guard';
@@ -8,7 +11,24 @@ import { CreateCommandDto, CreateDeviceDto, UpdateDeviceDto, ReadingsQueryDto } 
 @Controller('devices')
 @UseGuards(JwtAuthGuard)
 export class DevicesController {
-  constructor(private readonly devices: DevicesService) {}
+  constructor(private readonly devices: DevicesService, private readonly accessories: PanelAccessoriesService) {}
+
+  @Get(':id/accessories')
+  async accessoryStatus(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) {
+    return this.accessories.status(await this.devices.getOwned(user, id));
+  }
+
+  @Patch(':id/accessories')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async accessorySettings(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: PanelAccessories) {
+    return this.accessories.save(await this.devices.getOwned(user, id), dto);
+  }
+
+  @Post(':id/accessories/command')
+  async accessoryCommand(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: AccessoryCommand) {
+    return this.accessories.command(await this.devices.getOwned(user, id), dto);
+  }
 
   @Get()
   findAll(@CurrentUser() user: JwtUser) {
