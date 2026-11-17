@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseIntPipe,
   Post,
@@ -44,6 +45,7 @@ export class AppReleasesController {
   // ---------- publik (halaman login) ----------
 
   @Get('latest')
+  @Header('Cache-Control', 'no-store, max-age=0')
   async latest() {
     const r = await this.releases.latest();
     return { release: r ? publicInfo(r) : null };
@@ -52,12 +54,14 @@ export class AppReleasesController {
   @Get('latest/download')
   async downloadLatest(@Res() res: Response) {
     const { path, downloadName } = await this.releases.fileFor('latest');
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.download(path, downloadName);
   }
 
   @Get(':id/download')
   async download(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     const { path, downloadName } = await this.releases.fileFor(id);
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.download(path, downloadName);
   }
 
