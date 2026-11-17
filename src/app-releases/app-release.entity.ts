@@ -15,6 +15,9 @@ export class AppRelease {
   @Column({ type: 'integer', nullable: true })
   versionCode: number | null;
 
+  @Column({ default: false })
+  mandatory: boolean;
+
   @Column({ default: '' })
   notes: string;
 

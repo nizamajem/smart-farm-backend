@@ -10,6 +10,7 @@ import { AppRelease } from './app-release.entity';
 
 export interface UploadReleaseBody {
   notes?: string;
+  mandatory?: string;
 }
 
 /** Hanya APK aplikasi ini yang boleh diunggah (applicationId di android/app/build.gradle.kts). */
@@ -46,6 +47,9 @@ export class AppReleasesService {
   async create(file: Express.Multer.File | undefined, body: UploadReleaseBody, userId: number) {
     if (!file) throw new BadRequestException('Pilih berkas APK untuk diunggah');
     try {
+      if (body.mandatory !== undefined && !['true', 'false'].includes(body.mandatory)) {
+        throw new BadRequestException('Pilihan wajib diperbarui tidak valid');
+      }
       const notes = (body.notes ?? '').trim();
       if (notes.length > 1000) throw new BadRequestException('Catatan rilis maksimal 1000 karakter');
       if (!file.originalname.toLowerCase().endsWith('.apk')) {
@@ -86,6 +90,7 @@ export class AppReleasesService {
         this.releases.create({
           version,
           versionCode,
+          mandatory: body.mandatory === 'true',
           notes,
           fileName,
           size: file.size,

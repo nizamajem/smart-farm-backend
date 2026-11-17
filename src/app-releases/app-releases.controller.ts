@@ -27,6 +27,7 @@ const publicInfo = (r: AppRelease) => ({
   id: r.id,
   version: r.version,
   versionCode: r.versionCode,
+  mandatory: r.mandatory,
   notes: r.notes,
   size: r.size,
   sha256: r.sha256,
