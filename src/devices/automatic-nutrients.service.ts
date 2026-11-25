@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { Device } from './device.entity';
 import { SensorReading } from './sensor-reading.entity';
 import { NutrientsService } from './nutrients.service';
-import { AutomaticNutrientsDto, plantAge } from './automatic-nutrients';
+import { AutomaticNutrientsDto, plantAge, nutrientRange } from './automatic-nutrients';
 
 @Injectable()
 export class AutomaticNutrientsService implements OnModuleInit, OnModuleDestroy {
@@ -24,7 +24,10 @@ export class AutomaticNutrientsService implements OnModuleInit, OnModuleDestroy 
     const hst = plantAge(d.automaticNutrients?.plantedOn);
     const stages = d.automaticNutrients?.stages || [];
     const stage = hst == null ? null : stages.find(s => hst >= s.fromDay && hst <= s.toDay) || null;
-    return {config:d.automaticNutrients, state:d.automaticState, hst, targets:stages.length ? stage : d.automaticNutrients ? {targetPpm:d.automaticNutrients.targetPpm,targetPh:d.automaticNutrients.targetPh} : null};
+    const c=d.automaticNutrients;
+    const expired=c && hst!=null && (hst<(c.fromDay??0) || hst>(c.toDay??3650));
+    const target=expired?null:stages.length?stage:c;
+    return {config:c?{...c,...nutrientRange(c),stages:stages.map(s=>({...s,...nutrientRange(s)}))}:null,state:d.automaticState,hst,targets:target?{...target,...nutrientRange(target)}:null,history:d.nutrientSettingsHistory||[]};
   }
   async save(id:number, config:AutomaticNutrientsDto) {
     if (this.locks.has(id)) throw new ConflictException('Evaluasi otomatis sedang berjalan. Coba lagi sebentar.');
@@ -35,10 +38,21 @@ export class AutomaticNutrientsService implements OnModuleInit, OnModuleDestroy 
         const parsed=new Date(`${config.plantedOn}T00:00:00Z`);
         if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0,10)!==config.plantedOn || config.plantedOn>new Date(Date.now()+8*3600000).toISOString().slice(0,10)) throw new BadRequestException('Tanggal tanam harus valid dan tidak di masa depan.');
       }
+      const range=nutrientRange(config);
+      for(const c of [config,...(config.stages||[])]) {
+        if ((c.ppmMin==null)!==(c.ppmMax==null) || (c.phMin==null)!==(c.phMax==null)) throw new BadRequestException('Isi kedua batas min dan maks.');
+        const r=nutrientRange(c);
+        if(!Object.values(r).every(Number.isFinite) || r.ppmMin<1 || r.ppmMax>10000 || r.ppmMin>=r.ppmMax || r.phMin<=0 || r.phMax>=14 || r.phMin>=r.phMax) throw new BadRequestException('Batas minimum harus lebih kecil daripada maksimum.');
+      }
+      if((config.toDay??3650)<(config.fromDay??0)) throw new BadRequestException('HST akhir harus sama atau lebih besar daripada HST mulai.');
+      if((config.fromDay!=null || config.toDay!=null) && !config.plantedOn) throw new BadRequestException('Isi tanggal tanam untuk durasi HST.');
+      config={...config,...range,targetPpm:(range.ppmMin+range.ppmMax)/2,targetPh:(range.phMin+range.phMax)/2,ppmTolerance:(range.ppmMax-range.ppmMin)/2,phTolerance:(range.phMax-range.phMin)/2};
       const stages=[...(config.stages || [])].sort((a,b)=>a.fromDay-b.fromDay);
       if (stages.some((s,i)=>s.toDay<s.fromDay || i>0 && s.fromDay<=stages[i-1].toDay)) throw new BadRequestException('Rentang HST tidak boleh terbalik atau tumpang tindih.');
       if (stages.length && !config.plantedOn) throw new BadRequestException('Isi tanggal tanam untuk target berdasarkan HST.');
       if (config.enabled) {
+        const hst=plantAge(config.plantedOn);
+        if(hst!=null && (hst<(config.fromDay??0) || hst>(config.toDay??3650))) throw new BadRequestException('HST saat ini berada di luar durasi pengaturan.');
         if (!config.ppmEnabled && !config.phEnabled) throw new BadRequestException('Pilih otomatis PPM atau pH.');
         if (d.lastMix?.status==='running' || d.lastPhDose?.status==='running') throw new ConflictException('Tunggu penambahan larutan selesai sebelum mengaktifkan otomatis.');
         if (stages.length && !stages.some(s=>plantAge(config.plantedOn)!>=s.fromDay && plantAge(config.plantedOn)!<=s.toDay)) throw new BadRequestException('HST saat ini belum memiliki target. Tambahkan tahap HST.');
@@ -56,12 +70,14 @@ export class AutomaticNutrientsService implements OnModuleInit, OnModuleDestroy 
       if(d.automaticNutrients?.enabled || d.automaticState?.phase) {
         await this.nutrients.stop(id); await this.nutrients.stopPh(id);
       }
-      await this.devices.update(id,{automaticNutrients:{...config,stages},automaticState:{cycles:0,message:config.enabled?'Menunggu pembacaan sensor terbaru.':'Otomatis nonaktif.'}});
+      await this.devices.update(id,{automaticNutrients:{...config,stages},automaticState:{cycles:0,message:config.enabled?'Menunggu pembacaan sensor terbaru.':'Otomatis nonaktif.'},nutrientSettingsHistory:[{savedAt:new Date().toISOString(),config:{...config,stages},recipe:d.nutrientRecipe},...(d.nutrientSettingsHistory||[])].slice(0,50)});
       return this.status(await this.devices.findOneByOrFail({id}));
     } finally {this.locks.delete(id);}
   }
   private async pause(d:Device,message:string) {
     await this.devices.update(d.id,{automaticNutrients:{...d.automaticNutrients!,enabled:false},automaticState:{...d.automaticState,cycles:d.automaticState?.cycles||0,message}});
+    if(d.lastMix?.status==='running')await this.nutrients.stop(d.id);
+    if(d.lastPhDose?.status==='running')await this.nutrients.stopPh(d.id);
   }
   async tick() {
     if(this.stopping)return;
@@ -75,6 +91,8 @@ export class AutomaticNutrientsService implements OnModuleInit, OnModuleDestroy 
   private async evaluate(d:Device) {
     const c=d.automaticNutrients!;
     const state=d.automaticState || {cycles:0,message:''};
+    const targets=this.status(d).targets;
+    if(!targets) {await this.pause(d,'Durasi HST berakhir atau belum ada aturan pada HST ini. Otomatis dijeda.');return;}
     if(d.lastMix?.status==='running' || d.lastPhDose?.status==='running')return;
     let waitUntil=state.waitUntil;
     if(state.phase) {
@@ -113,26 +131,25 @@ export class AutomaticNutrientsService implements OnModuleInit, OnModuleDestroy 
       if (sensorReport === state.lastSensorReport) return;
     }
 
-    const targets=this.status(d).targets;
-    if(!targets) {await this.pause(d,'HST saat ini belum memiliki target. Lengkapi tabel HST.');return;}
     if(c.ppmEnabled && (reading.tds==null || !Number.isFinite(reading.tds) || reading.tds<0) || c.phEnabled && (reading.ph==null || !Number.isFinite(reading.ph) || reading.ph<=0 || reading.ph>=14)) {
       await this.pause(d,'Nilai sensor PPM/pH tidak valid. Otomatis dijeda.');return;
     }
     let phase:'ppm'|'ph'|undefined;
-    if(c.ppmEnabled && reading.tds!<targets.targetPpm-c.ppmTolerance) phase='ppm';
-    else if(c.phEnabled && Math.abs(reading.ph!-targets.targetPh)>c.phTolerance) phase='ph';
+    const ppmCorrecting=c.ppmEnabled && (reading.tds!<targets.ppmMin || state.ppmCorrecting===true && reading.tds!<targets.ppmMax);
+    if(ppmCorrecting) phase='ppm';
+    else if(c.phEnabled && (reading.ph!<targets.phMin || reading.ph!>targets.phMax)) phase='ph';
     if(!phase) {
-      await this.devices.update(d.id,{automaticState:{cycles:0,lastReadingId:reading.id,lastSensorReport:sensorReport,message:c.ppmEnabled && reading.tds!>targets.targetPpm+c.ppmTolerance?'PPM di atas target. Penambahan nutrisi berhenti; periksa pengenceran air.':'Target stabil. Memantau sensor.'}});return;
+      await this.devices.update(d.id,{automaticState:{cycles:0,lastReadingId:reading.id,lastSensorReport:sensorReport,message:c.ppmEnabled && reading.tds!>targets.ppmMax?'PPM di atas target. Penambahan nutrisi berhenti; periksa pengenceran air.':'Target stabil. Memantau sensor.'}});return;
     }
     if(state.cycles>=c.maxCycles) {await this.pause(d,'Batas siklus tercapai. Periksa sensor dan larutan sebelum mengaktifkan kembali.');return;}
     if(this.stopping || !(await this.devices.findOneByOrFail({id:d.id})).automaticNutrients?.enabled)return;
     // Reserve durable cycle before dispatch; a restart never repeats the dose.
-    await this.devices.update(d.id,{automaticState:{cycles:state.cycles+1,lastReadingId:reading.id,lastSensorReport:sensorReport,phase,message:phase==='ppm'?'Menambahkan nutrisi A + B.':'Menyesuaikan pH.'}});
+    await this.devices.update(d.id,{automaticState:{cycles:state.cycles+1,lastReadingId:reading.id,lastSensorReport:sensorReport,ppmCorrecting,phase,message:phase==='ppm'?'Menambahkan nutrisi A + B.':'Menyesuaikan pH.'}});
     if(phase==='ppm') {
       const plan=this.nutrients.plan(d,c.abDoseLiters);
       await this.nutrients.start(d.id,{liters:c.abDoseLiters,newWater:false,mode:'correction',requestId:`auto-ppm-${d.id}-${reading.id}-${Date.now()}`,calibrationKey:plan.calibrationKey},d.ownerId,true);
     } else {
-      const channel=reading.ph!<targets.targetPh?'phUp':'phDown';
+      const channel=reading.ph!<targets.phMin?'phUp':'phDown';
       const plan=this.nutrients.phPlan(d,channel,c.phDoseMl);
       if(plan.seconds!>60)throw new Error('Dose too long');
       await this.nutrients.startPh(d.id,{channel,ml:c.phDoseMl,requestId:`auto-ph-${d.id}-${reading.id}-${Date.now()}`,calibrationKey:plan.calibrationKey},d.ownerId,true);

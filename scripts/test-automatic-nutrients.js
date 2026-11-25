@@ -68,3 +68,37 @@ test('automatic control handles dosing, fresh feedback, HST, stop, restart, faul
   await service.save(d.id,config);await service.onModuleInit();assert.equal((await latest()).automaticNutrients.enabled,false,'restart requires explicit re-enable');service.onModuleDestroy();
  } finally {service.onModuleDestroy();await db.destroy();}
 });
+
+test('min-max ranges drive PPM hysteresis, pH boundaries, HST expiration and saved history',async()=>{
+ const db=new DataSource({...databaseOptions(),database:':memory:'});await db.initialize();await db.runMigrations();
+ const devices=db.getRepository(Device),readings=db.getRepository(SensorReading);
+ const owner=await db.getRepository(User).save({name:'Test',email:'range@test.invalid',passwordHash:'unused',role:'user'});
+ const d=await devices.save({name:'Range GH',apiKey:'range-test',ownerId:owner.id,relayLabels:[]});
+ const calls=[];
+ const nutrients={plan:()=>({ready:true,issues:[],calibrationKey:'ab'}),phPlan:()=>({ready:true,seconds:1,issues:[],calibrationKey:'ph'}),stop:async()=>{},stopPh:async()=>{},
+ start:async(id,dto)=>{calls.push('ppm');await devices.update(id,{lastMix:{requestId:dto.requestId,status:'completed',liters:1,aSeconds:1,bSeconds:1,startedAt:new Date().toISOString(),finishedAt:new Date(Date.now()-61000).toISOString()}});},
+ startPh:async(id,dto)=>{calls.push(dto.channel);await devices.update(id,{lastPhDose:{...dto,status:'completed',seconds:1,startedAt:new Date().toISOString(),finishedAt:new Date(Date.now()-61000).toISOString()}});}};
+ const service=new AutomaticNutrientsService(devices,readings,nutrients);
+ const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+ const c={...config,ppmMin:800,ppmMax:1000,phMin:5.8,phMax:6.5,plantedOn:today,fromDay:0,toDay:65,maxCycles:10};
+ const sample=async(tds,ph)=>readings.save({deviceId:d.id,tds,ph,source:'http',createdAt:new Date()});
+ try {
+  await service.save(d.id,c);await sample(800,6);await service.tick();assert.equal(calls.length,0,'at minimum no new correction');
+  await sample(799,6);await service.tick();assert.deepEqual(calls,['ppm']);
+  await sample(900,6);await service.tick();assert.deepEqual(calls,['ppm','ppm'],'continues to upper limit after starting');
+  await sample(1000,6);await service.tick();assert.equal(calls.length,2,'at maximum stops');
+  await sample(900,6);await service.tick();assert.equal(calls.length,2,'does not restart inside range');
+  await sample(900,5.8);await service.tick();assert.equal(calls.length,2,'exact pH min is in range');
+  await sample(900,6.5);await service.tick();assert.equal(calls.length,2,'exact pH max is in range');
+  await sample(900,5.7);await service.tick();assert.equal(calls.at(-1),'phUp');
+  await sample(900,6.6);await service.tick();assert.equal(calls.at(-1),'phDown');
+  await assert.rejects(service.save(d.id,{...c,ppmMin:1000,ppmMax:800}));
+  await assert.rejects(service.save(d.id,{...c,phMin:7,phMax:5}));
+  await assert.rejects(service.save(d.id,{...c,fromDay:65,toDay:1}));
+  let saved=await devices.findOneByOrFail({id:d.id});assert.equal(saved.nutrientSettingsHistory.length,1);assert.equal(saved.nutrientSettingsHistory[0].config.ppmMin,800);
+  // Expiration is checked even when there is no new sensor report.
+  const oldDay=new Date(Date.now()+8*3600000-66*86400000).toISOString().slice(0,10);
+  await devices.update(d.id,{automaticNutrients:{...c,plantedOn:oldDay}});
+  await service.tick();saved=await devices.findOneByOrFail({id:d.id});assert.equal(saved.automaticNutrients.enabled,false);assert.match(saved.automaticState.message,/HST/);
+ }finally{service.onModuleDestroy();await db.destroy();}
+});

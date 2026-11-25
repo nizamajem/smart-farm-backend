@@ -59,6 +59,9 @@ export class Device {
   automaticState: import('./automatic-nutrients').AutomaticState | null;
 
   @Column('simple-json', { nullable: true })
+  nutrientSettingsHistory: {savedAt:string;config:import('./automatic-nutrients').AutomaticNutrientsDto;recipe:Device['nutrientRecipe']}[] | null;
+
+  @Column('simple-json', { nullable: true })
   nutrientRecipe: { liters: number; aSeconds: number; bSeconds: number } | { version: 2; waterLiters: number; aMl: number; bMl: number; crop?: string; plantAgeDays?: number; targetTds?: number; targetPh?: number } | null;
 
   @Column('simple-json', { nullable: true })
