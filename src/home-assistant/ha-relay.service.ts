@@ -197,6 +197,7 @@ export class HaRelayService implements OnModuleDestroy {
     this.manualBusy.add(deviceId);
     try {
       const device = await this.devices.findOneByOrFail({ id: deviceId });
+      if(device.automaticNutrients?.enabled) await this.devices.update(deviceId,{automaticNutrients:{...device.automaticNutrients,enabled:false},automaticState:{...device.automaticState,cycles:device.automaticState?.cycles||0,message:'Kontrol manual digunakan. Otomatis dinonaktifkan.'}});
       const channels = relay <= 2 ? [1, 2] : [relay];
       const entities = channels.map(channel => device.haRelays?.[RELAY_KEYS[channel - 1]]);
       if (action === 'ON') {

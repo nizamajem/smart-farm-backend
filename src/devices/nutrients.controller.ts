@@ -1,3 +1,5 @@
+import { AutomaticNutrientsService } from './automatic-nutrients.service';
+import { AutomaticNutrientsDto } from './automatic-nutrients';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsIn, IsNumber, IsString, IsOptional, IsInt, MaxLength, Matches, Max, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -48,7 +50,11 @@ export class PhDoseDto extends PhPlanDto {
 @Controller('devices/:id/nutrients')
 @UseGuards(JwtAuthGuard)
 export class NutrientsController {
-  constructor(private readonly devices: DevicesService, private readonly nutrients: NutrientsService) {}
+  constructor(private readonly devices: DevicesService, private readonly nutrients: NutrientsService, private readonly automatic: AutomaticNutrientsService) {}
+  @Get('automatic')
+  async automaticStatus(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) { return this.automatic.status(await this.devices.getOwned(user, id)); }
+  @Put('automatic')
+  async automaticSave(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number, @Body() dto: AutomaticNutrientsDto) { await this.devices.getOwned(user, id); return this.automatic.save(id, dto); }
   @Get()
   async status(@CurrentUser() user: JwtUser, @Param('id', ParseIntPipe) id: number) { return this.nutrients.status(await this.devices.getOwned(user, id)); }
   @Post('ph/plan')

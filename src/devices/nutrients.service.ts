@@ -40,7 +40,8 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     return { channel, ml, seconds, calibrationKey: JSON.stringify({ channel, pump }), ready: !issues.length, issues };
   }
 
-  async startPh(id: number, dto: PhDoseDto, userId: number) {
+  async startPh(id: number, dto: PhDoseDto, userId: number, automatic = false) {
+    if (!automatic) await this.disableAutomatic(id);
     if (this.phJobs.has(id)) {
       const device = await this.devices.findOneByOrFail({ id });
       if (device.lastPhDose?.requestId === dto.requestId) return this.status(device);
@@ -50,6 +51,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     try {
       const device = await this.devices.findOneByOrFail({ id });
       if (device.lastPhDose?.requestId === dto.requestId) { this.relays.releaseMix(id, token); return this.status(device); }
+      if (automatic && !device.automaticNutrients?.enabled) throw new ConflictException('Otomatis sudah dinonaktifkan.');
       const plan = this.phPlan(device, dto.channel, dto.ml);
       if (dto.calibrationKey !== plan.calibrationKey) throw new ConflictException('Kalibrasi berubah. Hitung ulang dosis pH.');
       if (!plan.ready) throw new BadRequestException(plan.issues.join(' '));
@@ -83,9 +85,15 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async disableAutomatic(id: number) {
+    const d = await this.devices.findOneByOrFail({id});
+    if(d.automaticNutrients?.enabled) await this.devices.update(id,{automaticNutrients:{...d.automaticNutrients,enabled:false}});
+  }
   async stopPh(id: number) {
+    await this.disableAutomatic(id);
     const device = await this.devices.findOneByOrFail({ id });
-    if (this.phJobs.has(id)) { await this.relays.cancelMix(device, 'ph'); await this.phJobs.get(id); }
+    await this.relays.cancelMix(device, 'ph');
+    if (this.phJobs.has(id)) await this.phJobs.get(id);
     return this.status(await this.devices.findOneByOrFail({ id }));
   }
   async saveRecipe(id: number, recipe: RecipeDto) {
@@ -131,7 +139,8 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     if (!mapped) issues.push('Hubungkan relay A dan B di Pengaturan alat.');
     return { liters, aMl, bMl, aSeconds, bSeconds, calibrationKey: JSON.stringify({ recipe: r, a: pumps.a, b: pumps.b }), ready: withinLimits && mapped && paired, issues, minLiters, maxLiters };
   }
-  async start(id: number, dto: MixDto, userId: number) {
+  async start(id: number, dto: MixDto, userId: number, automatic = false) {
+    if (!automatic) await this.disableAutomatic(id);
     if (this.jobs.has(id)) {
       const d = await this.devices.findOneByOrFail({ id });
       if (d.lastMix?.requestId === dto.requestId) return this.status(d);
@@ -142,6 +151,7 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
       const device = await this.devices.findOneByOrFail({ id });
       if (device.lastMix?.requestId === dto.requestId) { this.relays.releaseMix(id, token); return this.status(device); }
       if (!dto.newWater && dto.mode !== 'correction') throw new BadRequestException('Konfirmasi air belum diberi AB mix');
+      if (automatic && !device.automaticNutrients?.enabled) throw new ConflictException('Otomatis sudah dinonaktifkan.');
       const plan = this.plan(device, dto.liters);
       if (dto.calibrationKey !== plan.calibrationKey) throw new ConflictException('Kalibrasi berubah. Hitung ulang takaran.');
       if (!plan.ready) throw new BadRequestException(plan.issues.join(' '));
@@ -197,8 +207,10 @@ export class NutrientsService implements OnModuleInit, OnModuleDestroy {
     }
   }
   async stop(id: number) {
+    await this.disableAutomatic(id);
     const device = await this.devices.findOneByOrFail({ id });
-    if (this.jobs.has(id)) { await this.relays.cancelMix(device); await this.jobs.get(id); }
+    await this.relays.cancelMix(device);
+    if (this.jobs.has(id)) await this.jobs.get(id);
     return this.status(await this.devices.findOneByOrFail({ id }));
   }
   async onModuleDestroy() { await Promise.allSettled([...this.jobs.keys()].map(id => this.stop(id)).concat([...this.phJobs.keys()].map(id => this.stopPh(id)))); }

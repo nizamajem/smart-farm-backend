@@ -1,3 +1,4 @@
+import { AutomaticNutrientsService } from './automatic-nutrients.service';
 import { PanelAccessoriesService } from './panel-accessories.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -14,7 +15,7 @@ import { NutrientsController } from './nutrients.controller';
 @Module({
   imports: [TypeOrmModule.forFeature([Device, SensorReading, RelayCommand])],
   controllers: [DevicesController, NutrientsController],
-  providers: [PanelAccessoriesService, DevicesService, DeviceEvents, HaRelayService, NutrientsService],
+  providers: [AutomaticNutrientsService,PanelAccessoriesService, DevicesService, DeviceEvents, HaRelayService, NutrientsService],
   exports: [DevicesService, DeviceEvents, HaRelayService, TypeOrmModule],
 })
 export class DevicesModule {}
