@@ -13,6 +13,7 @@ const { RelayCommand } = require('../dist/devices/relay-command.entity');
 const { DevicesService } = require('../dist/devices/devices.service');
 const { NutrientsService } = require('../dist/devices/nutrients.service');
 const { NutrientsController } = require('../dist/devices/nutrients.controller');
+const { AutomaticNutrientsService } = require('../dist/devices/automatic-nutrients.service');
 const { JwtAuthGuard } = require('../dist/auth/jwt-auth.guard');
 const { HomeAssistantService } = require('../dist/home-assistant/home-assistant.service');
 const { HaRelayService } = require('../dist/home-assistant/ha-relay.service');
@@ -56,6 +57,7 @@ test('real HTTP validation explains errors; sensor saves preserve pH and dosing 
     class TestModule {}
     Module({ controllers: [NutrientsController], providers: [
       { provide: DevicesService, useValue: devices }, { provide: NutrientsService, useValue: nutrients },
+      { provide: AutomaticNutrientsService, useValue: new AutomaticNutrientsService(repo,readings,nutrients) },
       { provide: JwtService, useValue: { verifyAsync: async () => ({ sub: owner.id, role: 'user' }) } },
     ] })(TestModule);
     app = await NestFactory.create(TestModule, { logger: false, abortOnError: false });
@@ -64,6 +66,19 @@ test('real HTTP validation explains errors; sensor saves preserve pH and dosing 
     await app.listen(0, '127.0.0.1');
     const base = await app.getUrl();
     const put = async (path, body) => fetch(`${base}/api/devices/${d.id}/nutrients/${path}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-only' }, body: JSON.stringify(body) });
+    const getAuto = await fetch(`${base}/api/devices/${d.id}/nutrients/automatic`,{headers:{Authorization:'Bearer test-only'}});
+    assert.equal(getAuto.status,200,'automatic endpoint is registered and wired');
+    assert.equal((await getAuto.json()).config,null);
+    const automaticConfig={enabled:false,ppmEnabled:true,phEnabled:true,ppmMin:800,ppmMax:1000,phMin:5.8,phMax:6.5,fromDay:0,toDay:65,plantedOn:new Date(Date.now()+8*3600000).toISOString().slice(0,10),abDoseLiters:1,phDoseMl:1,settleSeconds:300,maxCycles:5,stages:[]};
+    const autoSaved=await put('automatic',automaticConfig);
+    assert.equal(autoSaved.status,200);
+    const autoStatus=await autoSaved.json();
+    assert.equal(autoStatus.config.ppmMin,800);assert.equal(autoStatus.config.ppmMax,1000);
+    assert.equal(autoStatus.config.phMin,5.8);assert.equal(autoStatus.config.toDay,65);
+    assert.equal(autoStatus.history.length,1);
+    assert.equal((await put('automatic',{...automaticConfig,ppmMin:1100})).status,400,'inverted range rejected over HTTP');
+    const autoDenied=await fetch(`${base}/api/devices/${d.id}/nutrients/automatic`);
+    assert.equal(autoDenied.status,401);
     const oldFormat = await put('recipe', { liters: .1, aSeconds: 5, bSeconds: 5 });
     assert.equal(oldFormat.status, 400, 'old ambiguous units must never become an ml recipe silently');
     const newFormat = await put('recipe', { waterLiters: 10, aMl: 10, bMl: 10 });
