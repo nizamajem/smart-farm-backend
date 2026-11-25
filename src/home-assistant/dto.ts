@@ -51,6 +51,11 @@ export class HaRelaysDto {
 }
 
 export class HaEntitiesDto {
+  @IsOptional() @IsString() @Matches(ENTITY_ID) waterTemperature?: string;
+  @IsOptional() @IsString() @Matches(ENTITY_ID) temperature2?: string;
+  @IsOptional() @IsString() @Matches(ENTITY_ID) temperature3?: string;
+  @IsOptional() @IsString() @Matches(ENTITY_ID) humidity2?: string;
+  @IsOptional() @IsString() @Matches(ENTITY_ID) humidity3?: string;
   @IsOptional() @IsString() @Matches(ENTITY_ID) flowIn?: string;
   @IsOptional() @IsString() @Matches(ENTITY_ID) flowOut?: string;
   @IsOptional() @IsString() @Matches(ENTITY_ID) flowOutTotal?: string;

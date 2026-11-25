@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Device, HA_METRICS, HaEntityMap } from '../devices/device.entity';
+import { Device, HA_METRICS, HA_MAPPING_KEYS, HaEntityMap } from '../devices/device.entity';
 import { SensorReading } from '../devices/sensor-reading.entity';
 import { logHub, LogLevel } from '../logs/log-hub';
 import { SettingsService } from '../settings/settings.service';
@@ -152,7 +152,7 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
       const device = await this.devices.findOne({ where: { id: deviceId } });
       if (!device) throw new NotFoundException('Perangkat tidak ditemukan');
       const cleaned: HaEntityMap = { ...device.haEntities };
-      for (const metric of HA_METRICS) {
+      for (const metric of HA_MAPPING_KEYS) {
         if (!Object.prototype.hasOwnProperty.call(map, metric) || map[metric] == null) continue;
         const id = map[metric]!.trim();
         if (id) cleaned[metric] = id;
@@ -215,10 +215,21 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
       let latest = 0;
       for (const metric of HA_METRICS) {
         const entityId = device.haEntities?.[metric];
-        if (!entityId) continue;
-        const s = byId.get(entityId);
+        if (!entityId && !((metric === 'temperature' || metric === 'humidity') && (device.haEntities?.[`${metric}2`] || device.haEntities?.[`${metric}3`]))) continue;
+        if (metric === 'temperature' || metric === 'humidity') {
+          const ids = [...new Set([entityId, device.haEntities?.[`${metric}2`], device.haEntities?.[`${metric}3`]].filter((id): id is string => !!id))];
+          const samples = ids.map(id => byId.get(id)).filter((state): state is HaState => !!state);
+          const numbers = samples.map(state => toNumber(state.state)).filter((n): n is number => n != null && Number.isFinite(n));
+          if (numbers.length) values[metric] = numbers.reduce((a, b) => a + b, 0) / numbers.length;
+          for (const state of samples) {
+            latest = Math.max(latest, Date.parse(state.last_reported ?? state.last_updated) || 0);
+            raw[state.entity_id] = { state: state.state, unit: state.attributes?.unit_of_measurement };
+          }
+          continue;
+        }
+        const s = byId.get(entityId!);
         if (!s) {
-          missing.push(entityId);
+          missing.push(entityId!);
           continue;
         }
         let v = toNumber(s.state);
@@ -238,7 +249,7 @@ export class HomeAssistantService implements OnModuleInit, OnModuleDestroy {
         }
         if (v != null) values[metric] = v;
         latest = Math.max(latest, Date.parse(s.last_reported ?? s.last_updated) || 0);
-        raw[entityId] = { state: s.state, unit: s.attributes?.unit_of_measurement, last_updated: s.last_updated };
+        raw[entityId!] = { state: s.state, unit: s.attributes?.unit_of_measurement, last_updated: s.last_updated };
       }
       for (const [kind, column] of [['power','mcbPower'],['voltage','mcbVoltage'],['current','mcbCurrent']] as const) {
         const entity = device.haMcbSensors?.[kind];

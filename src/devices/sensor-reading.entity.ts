@@ -20,6 +20,9 @@ export class SensorReading {
   @Column('real', { nullable: true })
   temperature: number | null;
 
+  @Column('real', { nullable: true })
+  waterTemperature: number | null;
+
   /** % RH */
   @Column('real', { nullable: true })
   humidity: number | null;

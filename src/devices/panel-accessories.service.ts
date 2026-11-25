@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Device } from './device.entity';
 import { SettingsService } from '../settings/settings.service';
-import { AccessoryCommand, defaultAccessories, PanelAccessories } from './panel-accessories';
+import { AccessoryCommand, defaultAccessories, defaultTanks, PanelAccessories } from './panel-accessories';
 import type { HaState } from '../home-assistant/home-assistant.service';
 
 @Injectable()
@@ -34,21 +34,27 @@ export class PanelAccessoriesService {
       if (!config.level || !config.valve) throw new BadRequestException('Lengkapi pengaturan level air dan valve.');
       // Rebuild only fields supported by each device type.
       const clean: PanelAccessories = {
+        curtain: { name: 'Tirai GH', entity: config.curtain?.entity || '' },
+        tanks: (config.tanks || defaultTanks()).map(t => ({ key: t.key, entity: t.entity || '', mode: t.mode, ...(t.mode === 'calibrated' ? {emptyValue: t.emptyValue, fullValue: t.fullValue} : {}) })),
         plugs: config.plugs.map(p => ({ name: p.name.trim(), entity: p.entity || '' })),
         valve: { name: config.valve.name.trim(), entity: config.valve.entity || '' },
         level: { name: config.level.name.trim(), status: config.level.status || '', depth: config.level.depth || '' },
         soils: config.soils.map(s => ({ name: s.name.trim(), moisture: s.moisture || '', temperature: s.temperature || '' })),
       };
       if ([...clean.plugs, clean.valve, clean.level, ...clean.soils].some(p => !p.name)) throw new BadRequestException('Isi nama setiap perlengkapan.');
-      const switches = [...clean.plugs, clean.valve].map(p => p.entity).filter(Boolean) as string[];
+      if (new Set(clean.tanks!.map(t => t.key)).size !== 3) throw new BadRequestException('Isi tiga tandon berbeda: utama, A, dan B.');
+      for (const tank of clean.tanks!) {
+        if (tank.mode === 'calibrated' && (!Number.isFinite(tank.emptyValue) || !Number.isFinite(tank.fullValue) || tank.emptyValue === tank.fullValue)) throw new BadRequestException('Isi nilai kosong dan penuh yang berbeda untuk kalibrasi tandon.');
+      }
+      const switches = [...clean.plugs, clean.valve, clean.curtain!].map(p => p.entity).filter(Boolean) as string[];
       if (new Set(switches).size !== switches.length) throw new BadRequestException('Pilih entity berbeda untuk setiap kontrol.');
       const all = await this.devices.find();
       const used = all.flatMap(d => [...Object.values(d.haRelays || {}), d.haMcbEntity,
-        ...(d.id === device.id ? [] : [...(d.accessories?.plugs || []).map(p => p.entity), d.accessories?.valve?.entity])]);
+        ...(d.id === device.id ? [] : [...(d.accessories?.plugs || []).map(p => p.entity), d.accessories?.valve?.entity, d.accessories?.curtain?.entity])]);
       if (switches.some(id => used.includes(id))) throw new BadRequestException('Entity kontrol sudah digunakan. Pilih entity lain.');
-      const ids = Object.values(clean).flatMap(v => Array.isArray(v) ? v : [v])
-        .flatMap(v => Object.entries(v).filter(([key]) => key !== 'name').map(([, value]) => value)).filter(Boolean);
-      const previous = [...(device.accessories?.plugs || []), device.accessories?.valve].map(p => p?.entity).filter(Boolean);
+      const ids = [...switches, clean.level.status, clean.level.depth,
+        ...clean.soils.flatMap(t => [t.moisture, t.temperature]), ...clean.tanks!.map(t => t.entity)].filter((id): id is string => !!id);
+      const previous = [...(device.accessories?.plugs || []), device.accessories?.valve, device.accessories?.curtain].map(p => p?.entity).filter(Boolean);
       if (ids.length || previous.length) {
         const states = await this.request('/states');
         if (previous.some(id => !switches.includes(id!) && states.some(s => s.entity_id === id && s.state === 'on'))) throw new ConflictException('Matikan perangkat sebelum mengganti entity kontrolnya.');
@@ -61,7 +67,7 @@ export class PanelAccessoriesService {
 
   async status(device: Device) {
     const config = device.accessories || defaultAccessories();
-    const configured = [...config.plugs, config.valve, config.level, ...config.soils]
+    const configured = [...config.plugs, config.valve, config.level, ...config.soils, ...(config.curtain ? [config.curtain] : []), ...(config.tanks || []).map(t => ({ name: t.key, entity: t.entity }))]
       .some(p => Object.entries(p).some(([key, value]) => key !== 'name' && !!value));
     const states = configured ? await this.request('/states') : [];
     const read = (id?: string, numeric = false) => {
@@ -73,6 +79,18 @@ export class PanelAccessoriesService {
         unit: state?.attributes?.unit_of_measurement || null, updatedAt: state?.last_updated || null };
     };
     return {
+      curtain: { key: 'curtain', name: 'Tirai GH', ...read(config.curtain?.entity) },
+      tanks: (config.tanks || defaultTanks()).map(t => {
+        const reading = read(t.entity, true);
+        let percent: number | null = null;
+        if (reading.value != null) {
+          if (t.mode === 'percent' && reading.unit === '%' && reading.value >= 0 && reading.value <= 100) percent = reading.value;
+          if (t.mode === 'calibrated' && Number.isFinite(t.emptyValue) && Number.isFinite(t.fullValue) && t.emptyValue !== t.fullValue) {
+            percent = Math.max(0, Math.min(100, (reading.value - t.emptyValue!) / (t.fullValue! - t.emptyValue!) * 100));
+          }
+        }
+        return {key: t.key, name: t.key === 'main' ? 'Tandon Utama' : t.key === 'a' ? 'Tandon Larutan A' : 'Tandon Larutan B', ...reading, percent};
+      }),
       plugs: config.plugs.map((p, i) => ({ key: `plug${i + 1}`, name: p.name, ...read(p.entity) })),
       valve: { key: 'valve', name: config.valve.name, ...read(config.valve.entity) },
       level: { name: config.level.name, status: read(config.level.status), depth: read(config.level.depth, true) },
@@ -86,13 +104,13 @@ export class PanelAccessoriesService {
     try {
       if (dto.action === 'ON' && !(await this.settings.getBool('ha.enabled'))) throw new ServiceUnavailableException('Integrasi Home Assistant sedang dimatikan.');
       const config = device.accessories || defaultAccessories();
-      const entity = dto.key === 'valve' ? config.valve.entity : config.plugs[dto.key === 'plug1' ? 0 : 1].entity;
+      const entity = dto.key === 'curtain' ? config.curtain?.entity : dto.key === 'valve' ? config.valve.entity : config.plugs[dto.key === 'plug1' ? 0 : 1].entity;
       if (!entity) throw new BadRequestException('Kontrol ini belum dihubungkan.');
       const before = (await this.request('/states')).find(s => s.entity_id === entity);
       if (!before || !['on', 'off'].includes(before.state)) throw new BadRequestException('Perangkat belum tersedia. Periksa sambungannya.');
       await this.request(`/services/switch/turn_${dto.action === 'ON' ? 'on' : 'off'}`, { entity_id: entity });
       const result = await this.status(device);
-      const state = dto.key === 'valve' ? result.valve : result.plugs[dto.key === 'plug1' ? 0 : 1];
+      const state = dto.key === 'curtain' ? result.curtain : dto.key === 'valve' ? result.valve : result.plugs[dto.key === 'plug1' ? 0 : 1];
       if (state.state !== dto.action.toLowerCase()) throw new BadGatewayException('Perintah terkirim, tetapi status belum terkonfirmasi. Perbarui status.');
       return result;
     } finally { this.busy.delete(device.id); }

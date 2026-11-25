@@ -91,6 +91,7 @@ export class ReadingsQueryDto {
 }
 
 export class CreateReadingDto {
+  @IsOptional() @IsNumber() waterTemperature?: number;
   @IsOptional()
   @IsNumber()
   temperature?: number;

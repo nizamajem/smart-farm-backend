@@ -10,10 +10,11 @@ import { User } from '../users/user.entity';
 
 export const DEFAULT_RELAY_LABELS = ['Pompa Air', 'Kipas', 'Lampu Tumbuh', 'Pompa Nutrisi'];
 
-export const HA_METRICS = ['temperature', 'humidity', 'soilMoisture', 'lightLux', 'ph', 'orp', 'conductivity', 'tds', 'salinity', 'specificGravity', 'conductivityFactor', 'flowIn', 'flowOut', 'flowOutTotal'] as const;
+export const HA_METRICS = ['waterTemperature', 'temperature', 'humidity', 'soilMoisture', 'lightLux', 'ph', 'orp', 'conductivity', 'tds', 'salinity', 'specificGravity', 'conductivityFactor', 'flowIn', 'flowOut', 'flowOutTotal'] as const;
 export type HaMetric = (typeof HA_METRICS)[number];
 /** Metrik sensor → entity_id Home Assistant, mis. { temperature: 'sensor.greenhouse_suhu' } */
-export type HaEntityMap = Partial<Record<HaMetric, string>>;
+export const HA_MAPPING_KEYS = [...HA_METRICS, 'temperature2', 'temperature3', 'humidity2', 'humidity3'] as const;
+export type HaEntityMap = Partial<Record<(typeof HA_MAPPING_KEYS)[number], string>>;
 export const RELAY_KEYS = ['relay1', 'relay2', 'relay3', 'relay4'] as const;
 export type HaRelayMap = Partial<Record<(typeof RELAY_KEYS)[number], string>>;
 
